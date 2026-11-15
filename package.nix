@@ -10,7 +10,7 @@
 
 buildNpmPackage {
   pname = "budget";
-  version = "1.0.0";
+  version = "1.1.0";
 
   # Nur die Quelldateien – node_modules und dist bleiben draussen
   src = lib.fileset.toSource {
@@ -26,7 +26,7 @@ buildNpmPackage {
     ];
   };
 
-  npmDepsHash = "sha256-48dctDm4QL2PWWOEhC5MsLmGywaqupZRew81khqXkTY=";
+  npmDepsHash = "sha256-yqiAa51PVJ5R4MNogvknrD6j00R8JePSCWZ1JIJX+TQ=";
 
   nativeBuildInputs = [
     makeWrapper
