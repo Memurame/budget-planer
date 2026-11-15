@@ -1,0 +1,147 @@
+import { useEffect, useRef, useState } from 'react'
+import { fmtCHF, fmtNum, parseAmount } from '../lib/format.js'
+
+export function Card({ title, subtitle, actions, children, className = '', padded = true }) {
+  return (
+    <section className={`rounded-2xl border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${className}`}>
+      {(title || actions) && (
+        <header className="flex items-start justify-between gap-4 px-5 pt-4 pb-3">
+          <div className="min-w-0">
+            {title && <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>}
+            {subtitle && <p className="mt-0.5 text-[13px] text-ink-3">{subtitle}</p>}
+          </div>
+          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        </header>
+      )}
+      <div className={padded ? 'px-5 pb-5' : ''}>{children}</div>
+    </section>
+  )
+}
+
+export function Button({ children, variant = 'default', className = '', ...props }) {
+  const styles = {
+    default: 'border border-line bg-surface hover:bg-surface-2 text-ink',
+    primary: 'bg-accent text-white hover:brightness-110 border border-transparent',
+    ghost: 'text-ink-2 hover:bg-surface-2 border border-transparent',
+    danger: 'border border-line text-bad hover:bg-surface-2',
+  }
+  return (
+    <button
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition disabled:opacity-40 ${styles[variant]} ${className}`}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function IconButton({ title, children, className = '', ...props }) {
+  return (
+    <button
+      title={title}
+      aria-label={title}
+      className={`grid size-7 place-items-center rounded-md text-ink-3 transition hover:bg-surface-2 hover:text-ink ${className}`}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** Betragsfeld: zeigt formatiert an, akzeptiert 1'234.50 oder 1234,5. Übernimmt bei Enter/Verlassen. */
+export function AmountInput({ value, onChange, className = '', placeholder = '0.00', ...props }) {
+  const [focused, setFocused] = useState(false)
+  const [text, setText] = useState('')
+  const ref = useRef(null)
+
+  const commit = () => {
+    setFocused(false)
+    const v = text.trim() === '' ? 0 : Math.round(parseAmount(text) * 100) / 100
+    if (v !== value) onChange(v)
+  }
+
+  return (
+    <input
+      ref={ref}
+      inputMode="decimal"
+      className={`num ${/\bw-/.test(className) ? "" : "w-full"} rounded-md border border-transparent bg-transparent px-2 py-1 text-right outline-none transition hover:border-line focus:border-accent focus:bg-surface ${className}`}
+      value={focused ? text : value ? fmtNum(value) : ''}
+      placeholder={placeholder}
+      onFocus={(e) => { setFocused(true); setText(value ? String(value) : ''); requestAnimationFrame(() => e.target.select()) }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') ref.current.blur()
+        if (e.key === 'Escape') { setText(value ? String(value) : ''); requestAnimationFrame(() => ref.current.blur()) }
+      }}
+      {...props}
+    />
+  )
+}
+
+/** Textfeld, das erst beim Verlassen übernimmt (verhindert Speichern bei jedem Tastendruck). */
+export function TextInput({ value, onChange, className = '', ...props }) {
+  const [text, setText] = useState(value)
+  useEffect(() => setText(value), [value])
+  const ref = useRef(null)
+  return (
+    <input
+      ref={ref}
+      className={`${/\bw-/.test(className) ? "" : "w-full"} min-w-0 rounded-md border border-transparent bg-transparent px-2 py-1 outline-none transition hover:border-line focus:border-accent focus:bg-surface ${className}`}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => text !== value && onChange(text)}
+      onKeyDown={(e) => e.key === 'Enter' && ref.current.blur()}
+      {...props}
+    />
+  )
+}
+
+export function Stat({ label, value, hint, tone }) {
+  const toneCls = tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-bad' : 'text-ink'
+  return (
+    <div className="rounded-2xl border border-line bg-surface px-5 py-4">
+      <div className="text-[13px] text-ink-3">{label}</div>
+      <div className={`num mt-1 text-[26px] font-semibold tracking-tight ${toneCls}`}>{value}</div>
+      {hint && <div className="mt-0.5 text-[12px] text-ink-3">{hint}</div>}
+    </div>
+  )
+}
+
+export function Progress({ value, tone = 'accent' }) {
+  const v = Math.max(0, Math.min(1, value || 0))
+  const color = tone === 'good' ? 'bg-good' : tone === 'warn' ? 'bg-warn' : 'bg-accent'
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+      <div className={`h-full rounded-full ${color}`} style={{ width: `${v * 100}%` }} />
+    </div>
+  )
+}
+
+export function Badge({ children, tone = 'neutral', title }) {
+  const cls = {
+    neutral: 'bg-surface-2 text-ink-2',
+    warn: 'bg-warn-soft text-warn',
+    accent: 'bg-accent-soft text-accent',
+  }[tone]
+  return <span title={title} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>{children}</span>
+}
+
+export const Money = ({ v, className = '' }) => <span className={`num ${className}`}>{fmtCHF(v)}</span>
+
+export const Icon = {
+  plus: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M8 3v10M3 8h10" /></svg>,
+  trash: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></svg>,
+  up: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 10l4-4 4 4" /></svg>,
+  down: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l4 4 4-4" /></svg>,
+  left: <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 4L6 8l4 4" /></svg>,
+  right: <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4l4 4-4 4" /></svg>,
+  target: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="5.5" /><circle cx="8" cy="8" r="2" /></svg>,
+  warn: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2l6.5 11.5h-13L8 2zM8 6.5v3M8 11.5v.01" /></svg>,
+  // Navigation
+  home: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M3 9l7-6 7 6v8H3V9z" /><path d="M8 17v-5h4v5" /></svg>,
+  list: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01" /></svg>,
+  calendar: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><rect x="3" y="4" width="14" height="13" rx="2" /><path d="M3 8h14M7 2.5v3M13 2.5v3" /></svg>,
+  chart: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 17h14M6 14V9M10 14V5M14 14v-3" /></svg>,
+  gear: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="10" cy="10" r="2.5" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" strokeLinecap="round" /></svg>,
+}

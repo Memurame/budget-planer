@@ -1,0 +1,6 @@
+node_modules
+dist
+result
+*.json.tmp
+budget.json
+backups/

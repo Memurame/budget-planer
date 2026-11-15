@@ -1,0 +1,129 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { loadData, saveData } from './lib/storage.js'
+import { createSeed } from './lib/seed.js'
+import { addMonths, monthKey, monthLabel, summary } from './lib/calc.js'
+import { Icon } from './components/ui.jsx'
+import Overview from './components/Overview.jsx'
+import BudgetEditor from './components/BudgetEditor.jsx'
+import Reserves from './components/Reserves.jsx'
+import Stats from './components/Stats.jsx'
+import Settings from './components/Settings.jsx'
+import { useTheme } from './lib/theme.js'
+
+const NAV = [
+  { id: 'overview', label: 'Übersicht', icon: Icon.home },
+  { id: 'budget', label: 'Budget', icon: Icon.list },
+  { id: 'reserves', label: 'Rücklagen', icon: Icon.calendar },
+  { id: 'stats', label: 'Statistik', icon: Icon.chart },
+  { id: 'settings', label: 'Einstellungen', icon: Icon.gear },
+]
+
+export default function App() {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
+  const [saveState, setSaveState] = useState('idle') // idle | saving | saved | error
+  const [view, setView] = useState(() => localStorage.getItem('view') || 'overview')
+  const [month, setMonth] = useState(monthKey())
+  const theme = useTheme()
+  const dirty = useRef(false)
+
+  useEffect(() => { localStorage.setItem('view', view) }, [view])
+
+  // Laden; beim ersten Start mit den Excel-Werten anlegen
+  useEffect(() => {
+    loadData()
+      .then((d) => {
+        if (d) setData(d)
+        else { setData(createSeed()); dirty.current = true }
+      })
+      .catch((e) => setError(String(e)))
+  }, [])
+
+  // Automatisch speichern (kurz verzögert)
+  useEffect(() => {
+    if (!data || !dirty.current) return
+    setSaveState('saving')
+    const t = setTimeout(() => {
+      saveData(data)
+        .then(() => { dirty.current = false; setSaveState('saved') })
+        .catch((e) => { setSaveState('error'); setError(String(e)) })
+    }, 400)
+    return () => clearTimeout(t)
+  }, [data])
+
+  const update = useCallback((fn) => {
+    setData((prev) => {
+      const next = structuredClone(prev)
+      fn(next)
+      dirty.current = true
+      return next
+    })
+  }, [])
+
+  const replaceData = useCallback((next) => { dirty.current = true; setData(next) }, [])
+
+  const s = useMemo(() => (data ? summary(data, month) : null), [data, month])
+
+  if (error && !data) return <div className="p-8 text-bad">Fehler beim Laden: {error}</div>
+  if (!data) return <div className="grid h-full place-items-center text-ink-3">Lade Budget …</div>
+
+  const isCurrent = month === monthKey()
+  const props = { data, update, replaceData, summary: s, month, setMonth, theme, setView }
+
+  return (
+    <div className="flex h-full">
+      <aside className="flex w-56 shrink-0 flex-col border-r border-line bg-surface px-3 py-5">
+        <div className="mb-6 flex items-center gap-2.5 px-2">
+          <img src="./icon.svg" alt="" className="size-8" />
+          <div>
+            <div className="text-[15px] font-semibold leading-tight">Budget</div>
+            <div className="text-[12px] text-ink-3">Haushaltsplan</div>
+          </div>
+        </div>
+        <nav className="flex flex-col gap-0.5">
+          {NAV.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => setView(n.id)}
+              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] transition ${
+                view === n.id ? 'bg-accent-soft font-medium text-accent' : 'text-ink-2 hover:bg-surface-2 hover:text-ink'
+              }`}
+            >
+              {n.icon}
+              {n.label}
+            </button>
+          ))}
+        </nav>
+        <div className="mt-auto px-3 text-[12px] text-ink-3">
+          {saveState === 'saving' && 'Speichert …'}
+          {saveState === 'saved' && '✓ Gespeichert'}
+          {saveState === 'error' && <span className="text-bad">Speichern fehlgeschlagen</span>}
+        </div>
+      </aside>
+
+      <main className="min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-[1200px] px-8 py-7">
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <h1 className="text-[22px] font-semibold tracking-tight">{NAV.find((n) => n.id === view)?.label}</h1>
+            {view !== 'settings' && (
+              <div className="flex items-center gap-1 rounded-xl border border-line bg-surface p-1">
+                <button className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-surface-2" onClick={() => setMonth(addMonths(month, -1))} title="Vorheriger Monat">{Icon.left}</button>
+                <div className="num w-24 text-center text-[14px] font-medium">{monthLabel(month)}</div>
+                <button className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-surface-2" onClick={() => setMonth(addMonths(month, 1))} title="Nächster Monat">{Icon.right}</button>
+                {!isCurrent && (
+                  <button className="rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-accent hover:bg-accent-soft" onClick={() => setMonth(monthKey())}>Heute</button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {view === 'overview' && <Overview {...props} />}
+          {view === 'budget' && <BudgetEditor {...props} />}
+          {view === 'reserves' && <Reserves {...props} />}
+          {view === 'stats' && <Stats {...props} />}
+          {view === 'settings' && <Settings {...props} />}
+        </div>
+      </main>
+    </div>
+  )
+}
