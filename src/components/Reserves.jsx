@@ -52,7 +52,7 @@ export default function Reserves({ data, update, month, theme, tx }) {
   const totalAmount = rows.reduce((s, x) => s + x.flat * 12, 0) // pro Jahr
   const nextPayout = forecast.find((f) => f.payout > 0)
 
-  const set = (idx, fn) => update((d) => fn(resolveRef(d, rows[idx].ref)))
+  const set = (ref, fn) => update((d) => fn(resolveRef(d, ref)))
   const add = () =>
     update((d) => {
       d.annual.push({ id: uid(), name: 'Neue jährliche Ausgabe', amount: 0, dueDate: `${addMonths(month, 12)}-01`, intervalMonths: 12, saved: 0, savedAsOf: month })
@@ -60,6 +60,153 @@ export default function Reserves({ data, update, month, theme, tx }) {
   const allOnTrack = () => {
     if (!confirm('Alle Positionen auf den Soll-Stand setzen (als ob bisher gleichmässig angespart wurde)?')) return
     update((d) => rows.forEach(({ ref }) => { const a = resolveRef(d, ref); a.saved = onTrackSaved(a, month); a.savedAsOf = month }))
+  }
+
+  const sums = (list) => ({
+    rate: list.reduce((a, x) => a + x.r.rate, 0),
+    saved: list.reduce((a, x) => a + (x.startSaved || 0), 0),
+    amount: list.reduce((a, x) => a + x.flat * 12, 0),
+  })
+
+  /** Tabelle für eine Liste von Rücklage-Positionen (jährliche Kosten oder periodische Gruppen-Positionen). */
+  const reserveTable = (list, { title, subtitle, actions, empty }) => {
+    const t = sums(list)
+    return (
+        <Card
+          title={title}
+          subtitle={subtitle}
+          actions={actions}
+          padded={false}
+        >
+          <div className="overflow-x-auto px-5 pb-4">
+            <table className="w-full min-w-[960px] table-fixed text-[14px]">
+              <thead>
+                <tr className="whitespace-nowrap border-b border-line text-left text-[12px] font-medium uppercase tracking-wide text-ink-3">
+                  <th className="px-2 pb-2 font-medium">Name</th>
+                  <th className="w-28 px-2 pb-2 text-right font-medium">Betrag</th>
+                  <th className="w-28 px-2 pb-2 font-medium">Intervall</th>
+                  <th className="w-40 px-2 pb-2 font-medium">Art / Fällig am</th>
+                  <th className="w-28 px-2 pb-2 text-right font-medium" title="Stand am Anfang des gewählten Monats">Angespart</th>
+                  <th className="w-32 px-2 pb-2 text-right font-medium">Rate / Monat</th>
+                  <th className="w-40 px-2 pb-2 font-medium">Fortschritt</th>
+                  <th className="w-16" />
+                </tr>
+              </thead>
+              <tbody>
+                {list.length === 0 && (
+                  <tr><td colSpan={8} className="px-2 py-6 text-center text-ink-3">{empty}</td></tr>
+                )}
+                {list.map(({ item, group, ref, r, flat, startSaved, elevated, budget, balance, spentYear, yearBudget, year }, idx) => (
+                  <tr key={item.id} className="group border-b border-line last:border-b-0">
+                    <td className="min-w-48 py-1 pr-2">
+                      <TextInput value={item.name} onChange={(v) => set(ref, (a) => { a.name = v })} />
+                      {group && <div className="px-2 text-[11px] text-ink-3">aus Gruppe «{group}»</div>}
+                      {!budget && <PaidHint item={item} paid={paidMap[item.id] || 0} startSaved={startSaved} month={month} onSet={(fn) => set(ref, fn)} />}
+                    </td>
+                    <td className="w-28 py-1">
+                      <AmountInput value={item.amount} onChange={(v) => set(ref, (a) => { a.amount = v })} />
+                    </td>
+                    <td className="w-32 py-1 px-1">
+                      <select
+                        value={item.intervalMonths}
+                        onChange={(e) => { const v = Number(e.target.value); set(ref, (a) => (group && v === 1 ? makeMonthly(a) : (a.intervalMonths = v))) }}
+                        className="w-full rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent"
+                      >
+                        {INTERVALS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    </td>
+                    <td className="w-40 py-1 px-1">
+                      <select
+                        value={item.mode || 'due'}
+                        onChange={(e) => set(ref, (a) => { if (e.target.value === 'budget') { a.mode = 'budget'; delete a.placeholder } else delete a.mode })}
+                        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12px] text-ink-2 outline-none hover:border-line focus:border-accent"
+                      >
+                        <option value="due">Fällige Zahlung</option>
+                        <option value="budget">Jahresbudget (laufend)</option>
+                      </select>
+                      {budget && (
+                        <select
+                          value={item.carry === 'reset' ? 'reset' : 'carry'}
+                          onChange={(e) => set(ref, (a) => { if (e.target.value === 'reset') a.carry = 'reset'; else delete a.carry })}
+                          className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12px] text-ink-2 outline-none hover:border-line focus:border-accent"
+                          title="Was passiert mit dem nicht ausgegebenen Rest am Ende des Kalenderjahres?"
+                        >
+                          <option value="carry">Rest übertragen</option>
+                          <option value="reset">Jedes Jahr neu</option>
+                        </select>
+                      )}
+                      {!budget && <div className="flex items-center gap-1.5">
+                        <input
+                          type="date"
+                          value={item.dueDate}
+                          onChange={(e) => e.target.value && set(ref, (a) => { a.dueDate = e.target.value; delete a.placeholder })}
+                          className="num w-[124px] rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent"
+                        />
+                        {item.placeholder && <span className="text-warn" title="Platzhalter – bitte echtes Datum eintragen">{Icon.warn}</span>}
+                      </div>}
+                    </td>
+                    <td className="w-28 py-1">
+                      {startSaved === null ? (
+                        <div className="px-2 text-right text-ink-3" title="Vor dem Startpunkt der Planung">–</div>
+                      ) : (
+                        <AmountInput value={Math.round(startSaved * 100) / 100} onChange={(v) => set(ref, (a) => { a.saved = v; a.savedAsOf = month })} />
+                      )}
+                    </td>
+                    <td className="w-32 px-2 py-1 text-right">
+                      <div className="num font-medium">{fmtCHF(r.rate)}</div>
+                      {Math.abs(r.rate - flat) > 0.01 && <div className="num text-[11px] text-ink-3">normal {fmtCHF(flat)}</div>}
+                    </td>
+                    <td className="px-2 py-1">
+                      {budget ? (
+                        <div title={`Ausgaben ${year}: ${fmtCHF(spentYear)} von ${fmtCHF(yearBudget)}`}>
+                          <Progress value={yearBudget ? spentYear / yearBudget : 0} tone={spentYear > yearBudget ? 'warn' : 'accent'} />
+                          <div className="mt-1 whitespace-nowrap text-[11px] text-ink-3">{year}: {fmtCHF0(spentYear)} von {fmtCHF0(yearBudget)}</div>
+                          {balance !== null && <div className={`whitespace-nowrap text-[11px] ${balance < 0 ? 'text-bad' : 'text-ink-2'}`}>Rücklage: {fmtCHF(balance)}</div>}
+                        </div>
+                      ) : r.payout > 0 ? (
+                        <Badge tone="accent">Fällig: {fmtCHF0(r.payout)} wird bezahlt</Badge>
+                      ) : (
+                        <>
+                          <Progress value={item.amount ? (startSaved ?? 0) / item.amount : 0} tone={elevated ? 'warn' : 'accent'} />
+                          <div className="mt-1 flex justify-between gap-1 whitespace-nowrap text-[11px] text-ink-3">
+                            <span>{r.left != null ? `noch ${r.left} Mt.` : ''}</span>
+                            {elevated && <span className="text-warn">erhöhte Rate</span>}
+                          </div>
+                        </>
+                      )}
+                    </td>
+                    <td className="py-1 text-right">
+                      <div className="flex justify-end opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+                        <IconButton title="Auf Soll-Stand setzen" onClick={() => set(ref, (a) => { a.saved = onTrackSaved(a, month); a.savedAsOf = month })}>{Icon.target}</IconButton>
+                        <IconButton title="Löschen" className="hover:text-bad" onClick={() =>
+                          confirmAndDelete({
+                            title: `«${item.name}» löschen?`,
+                            message: group ? `Die Position wird aus der Gruppe «${group}» entfernt – in allen Monaten.` : 'Die Rücklage wird entfernt – in allen Monaten.',
+                            ids: [item.id],
+                            update,
+                            tx,
+                            mutate: (d) => removeRef(d, ref),
+                          })
+                        }>{Icon.trash}</IconButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-line font-semibold">
+                  <td className="px-2 pt-3">Total</td>
+                  <td className="num px-2 pt-3 text-right">{fmtCHF(t.amount)}</td>
+                  <td colSpan={2} />
+                  <td className="num px-2 pt-3 text-right">{fmtCHF(t.saved)}</td>
+                  <td className="num px-2 pt-3 text-right">{fmtCHF(t.rate)}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </Card>
+    )
   }
 
   const c = readColors()
@@ -80,142 +227,29 @@ export default function Reserves({ data, update, month, theme, tx }) {
         />
       </div>
 
-      <Card
-        title="Alle Positionen mit Rücklage"
-        subtitle="Fällige Zahlung: Rate = (Betrag − angespart) ÷ Monate bis zur Fälligkeit. Jahresbudget: gleichmässig Betrag ÷ 12, Ausgaben laufend aus den Buchungen; pro Kalenderjahr – Rest übertragen oder jedes Jahr neu."
-        actions={
-          <>
-            <Button onClick={allOnTrack} title="Angespart-Werte auf gleichmässigen Verlauf setzen">{Icon.target} Alle auf Soll-Stand</Button>
-            <Button variant="primary" onClick={add}>{Icon.plus} Hinzufügen</Button>
-          </>
-        }
-        padded={false}
-      >
-        <div className="overflow-x-auto px-5 pb-4">
-          <table className="w-full min-w-[900px] text-[14px]">
-            <thead>
-              <tr className="whitespace-nowrap border-b border-line text-left text-[12px] font-medium uppercase tracking-wide text-ink-3">
-                <th className="px-2 pb-2 font-medium">Name</th>
-                <th className="px-2 pb-2 text-right font-medium">Betrag</th>
-                <th className="px-2 pb-2 font-medium">Intervall</th>
-                <th className="px-2 pb-2 font-medium">Art / Fällig am</th>
-                <th className="px-2 pb-2 text-right font-medium" title="Stand am Anfang des gewählten Monats">Angespart</th>
-                <th className="px-2 pb-2 text-right font-medium">Rate / Monat</th>
-                <th className="w-32 px-2 pb-2 font-medium">Fortschritt</th>
-                <th className="w-16" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ item, group, ref, r, flat, startSaved, elevated, budget, balance, spentYear, yearBudget, year }, idx) => (
-                <tr key={item.id} className="group border-b border-line last:border-b-0">
-                  <td className="min-w-48 py-1 pr-2">
-                    <TextInput value={item.name} onChange={(v) => set(idx, (a) => { a.name = v })} />
-                    {group && <div className="px-2 text-[11px] text-ink-3">aus Gruppe «{group}»</div>}
-                    {!budget && <PaidHint item={item} paid={paidMap[item.id] || 0} startSaved={startSaved} month={month} onSet={(fn) => set(idx, fn)} />}
-                  </td>
-                  <td className="w-28 py-1">
-                    <AmountInput value={item.amount} onChange={(v) => set(idx, (a) => { a.amount = v })} />
-                  </td>
-                  <td className="w-32 py-1 px-1">
-                    <select
-                      value={item.intervalMonths}
-                      onChange={(e) => { const v = Number(e.target.value); set(idx, (a) => (group && v === 1 ? makeMonthly(a) : (a.intervalMonths = v))) }}
-                      className="w-full rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent"
-                    >
-                      {INTERVALS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                  </td>
-                  <td className="w-40 py-1 px-1">
-                    <select
-                      value={item.mode || 'due'}
-                      onChange={(e) => set(idx, (a) => { if (e.target.value === 'budget') { a.mode = 'budget'; delete a.placeholder } else delete a.mode })}
-                      className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12px] text-ink-2 outline-none hover:border-line focus:border-accent"
-                    >
-                      <option value="due">Fällige Zahlung</option>
-                      <option value="budget">Jahresbudget (laufend)</option>
-                    </select>
-                    {budget && (
-                      <select
-                        value={item.carry === 'reset' ? 'reset' : 'carry'}
-                        onChange={(e) => set(idx, (a) => { if (e.target.value === 'reset') a.carry = 'reset'; else delete a.carry })}
-                        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12px] text-ink-2 outline-none hover:border-line focus:border-accent"
-                        title="Was passiert mit dem nicht ausgegebenen Rest am Ende des Kalenderjahres?"
-                      >
-                        <option value="carry">Rest übertragen</option>
-                        <option value="reset">Jedes Jahr neu</option>
-                      </select>
-                    )}
-                    {!budget && <div className="flex items-center gap-1.5">
-                      <input
-                        type="date"
-                        value={item.dueDate}
-                        onChange={(e) => e.target.value && set(idx, (a) => { a.dueDate = e.target.value; delete a.placeholder })}
-                        className="num w-[124px] rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent"
-                      />
-                      {item.placeholder && <span className="text-warn" title="Platzhalter – bitte echtes Datum eintragen">{Icon.warn}</span>}
-                    </div>}
-                  </td>
-                  <td className="w-28 py-1">
-                    {startSaved === null ? (
-                      <div className="px-2 text-right text-ink-3" title="Vor dem Startpunkt der Planung">–</div>
-                    ) : (
-                      <AmountInput value={Math.round(startSaved * 100) / 100} onChange={(v) => set(idx, (a) => { a.saved = v; a.savedAsOf = month })} />
-                    )}
-                  </td>
-                  <td className="w-32 px-2 py-1 text-right">
-                    <div className="num font-medium">{fmtCHF(r.rate)}</div>
-                    {Math.abs(r.rate - flat) > 0.01 && <div className="num text-[11px] text-ink-3">normal {fmtCHF(flat)}</div>}
-                  </td>
-                  <td className="px-2 py-1">
-                    {budget ? (
-                      <div title={`Ausgaben ${year}: ${fmtCHF(spentYear)} von ${fmtCHF(yearBudget)}`}>
-                        <Progress value={yearBudget ? spentYear / yearBudget : 0} tone={spentYear > yearBudget ? 'warn' : 'accent'} />
-                        <div className="mt-1 whitespace-nowrap text-[11px] text-ink-3">{year}: {fmtCHF0(spentYear)} von {fmtCHF0(yearBudget)}</div>
-                        {balance !== null && <div className={`whitespace-nowrap text-[11px] ${balance < 0 ? 'text-bad' : 'text-ink-2'}`}>Rücklage: {fmtCHF(balance)}</div>}
-                      </div>
-                    ) : r.payout > 0 ? (
-                      <Badge tone="accent">Fällig: {fmtCHF0(r.payout)} wird bezahlt</Badge>
-                    ) : (
-                      <>
-                        <Progress value={item.amount ? (startSaved ?? 0) / item.amount : 0} tone={elevated ? 'warn' : 'accent'} />
-                        <div className="mt-1 flex justify-between gap-1 whitespace-nowrap text-[11px] text-ink-3">
-                          <span>{r.left != null ? `noch ${r.left} Mt.` : ''}</span>
-                          {elevated && <span className="text-warn">erhöhte Rate</span>}
-                        </div>
-                      </>
-                    )}
-                  </td>
-                  <td className="py-1 text-right">
-                    <div className="flex justify-end opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
-                      <IconButton title="Auf Soll-Stand setzen" onClick={() => set(idx, (a) => { a.saved = onTrackSaved(a, month); a.savedAsOf = month })}>{Icon.target}</IconButton>
-                      <IconButton title="Löschen" className="hover:text-bad" onClick={() =>
-                        confirmAndDelete({
-                          title: `«${item.name}» löschen?`,
-                          message: group ? `Die Position wird aus der Gruppe «${group}» entfernt – in allen Monaten.` : 'Die Rücklage wird entfernt – in allen Monaten.',
-                          ids: [item.id],
-                          update,
-                          tx,
-                          mutate: (d) => removeRef(d, ref),
-                        })
-                      }>{Icon.trash}</IconButton>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-line font-semibold">
-                <td className="px-2 pt-3">Total</td>
-                <td className="num px-2 pt-3 text-right">{fmtCHF(totalAmount)}</td>
-                <td colSpan={2} />
-                <td className="num px-2 pt-3 text-right">{fmtCHF(totalSaved)}</td>
-                <td className="num px-2 pt-3 text-right">{fmtCHF(total)}</td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </Card>
+      {reserveTable(
+        rows.filter((x) => !x.group),
+        {
+          title: 'Jährliche Kosten',
+          subtitle: 'Fällige Zahlung: Rate = (Betrag − angespart) ÷ Monate bis zur Fälligkeit. Jahresbudget: gleichmässig Betrag ÷ 12, Ausgaben laufend aus den Buchungen; pro Kalenderjahr – Rest übertragen oder jedes Jahr neu.',
+          actions: (
+            <>
+              <Button onClick={allOnTrack} title="Angespart-Werte auf gleichmässigen Verlauf setzen">{Icon.target} Alle auf Soll-Stand</Button>
+              <Button variant="primary" onClick={add}>{Icon.plus} Hinzufügen</Button>
+            </>
+          ),
+          empty: 'Noch keine jährlichen Kosten erfasst.',
+        },
+      )}
+
+      {rows.some((x) => x.group) &&
+        reserveTable(
+          rows.filter((x) => x.group).sort((a, b) => a.group.localeCompare(b.group)),
+          {
+            title: 'Periodische Positionen aus Gruppen',
+            subtitle: 'Positionen aus den Budget-Gruppen mit vierteljährlicher, halbjährlicher oder jährlicher Abrechnung (z. B. Jahresabos). Sie zählen im Budget zu ihrer Gruppe.',
+          },
+        )}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card title="Rücklage pro Monat" subtitle="Benötigte Rate der nächsten 12 Monate">
