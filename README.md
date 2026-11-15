@@ -1,3 +1,5 @@
+<p align="center"><img src="public/icon.svg" width="112" alt="Budget-Planer Icon"></p>
+
 # budget-planer
 
 Lokaler Budget-Planer für NixOS (Electron aus nixpkgs). Alle Daten bleiben auf dem eigenen Rechner in einer JSON-Datei.
