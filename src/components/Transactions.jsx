@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Card, Button, IconButton, Badge, Icon, AmountInput } from './ui.jsx'
 import PositionSelect, { positionName } from './PositionSelect.jsx'
 import { fmtCHF, fmtDate, fmtPct } from '../lib/format.js'
@@ -24,10 +24,8 @@ export default function Transactions({ data, update, month, tx }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(new Set())
   const [imp, setImp] = useState(null)
-  const [ruleHint, setRuleHint] = useState(null)
-  const [lastRule, setLastRule] = useState(null) // zuletzt automatisch erstellte Regel (für Bearbeiten/Rückgängig)
-  const [autoRule, setAutoRuleState] = useState(() => localStorage.getItem('autoRule') !== 'off')
-  const setAutoRule = (v) => { setAutoRuleState(v); localStorage.setItem('autoRule', v ? 'on' : 'off'); setRuleHint(null) }
+  const suggestionsRef = useRef(null)
+  const pending = data.pendingRules || []
   const [showManual, setShowManual] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -70,50 +68,57 @@ export default function Transactions({ data, update, month, tx }) {
     if (!guard([t])) return
     if (pid === '__ignore') return setIgnored([t], true)
     tx.updateTx(t.id, (x) => { x.positionId = pid; x.status = pid ? 'manual' : 'open'; x.ruleId = null; x.override = true })
-    if (pid) {
-      const pattern = suggestPattern(t.text)
-      const existing = findRule(data.rules, t.text)
-      if (pattern && !(existing && existing.positionId === pid)) {
-        if (autoRule) addRule(pattern, pid, t.text, t.id)
-        else {
-          const similar = tx.transactions.filter((x) => x.id !== t.id && ['open', 'auto'].includes(x.status) && ruleMatches({ pattern }, x.text)).length
-          setRuleHint({ pattern, positionId: pid, similar, text: t.text })
-        }
-      }
-    }
+    if (pid) queueSuggestions([t], pid)
   }
 
   /**
-   * Neue Regel speichern und sofort anwenden. Trifft bereits eine andere Regel auf diesen Text zu,
+   * Regelvorschläge sammeln – es wird nichts automatisch erstellt.
+   * Ein Vorschlag pro Muster; wird derselbe Händler erneut zugeordnet, wird der Vorschlag aktualisiert.
+   */
+  const queueSuggestions = (list, pid) => {
+    update((d) => {
+      d.pendingRules = d.pendingRules || []
+      for (const t of list) {
+        const pattern = suggestPattern(t.text)
+        if (!pattern) continue
+        const existing = findRule(d.rules, t.text)
+        const key = pattern.toLowerCase()
+        const idx = d.pendingRules.findIndex((s) => s.pattern.toLowerCase() === key)
+        if (existing && existing.positionId === pid) {
+          if (idx >= 0) d.pendingRules.splice(idx, 1) // Regel existiert schon
+          continue
+        }
+        if (idx >= 0) Object.assign(d.pendingRules[idx], { positionId: pid, sample: t.text, hits: (d.pendingRules[idx].hits || 1) + 1 })
+        else d.pendingRules.push({ id: uid(), pattern, positionId: pid, sample: t.text, hits: 1 })
+      }
+    })
+  }
+
+  /**
+   * Regeln aus Vorschlägen erstellen und sofort anwenden. Trifft bereits eine andere Regel auf den Text zu,
    * bekommt die neue Regel Vorrang (wird davor eingefügt) – die manuelle Korrektur soll gelten.
    */
-  const addRule = (pattern, positionId, text, skipId = null) => {
-    const rule = { id: uid(), pattern: pattern.trim(), positionId }
-    const conflict = text ? data.rules.findIndex((r) => ruleMatches(r, text)) : -1
+  const createRules = (suggestions) => {
     const rules = [...data.rules]
-    rules.splice(conflict >= 0 ? conflict : rules.length, 0, rule)
-    update((d) => { d.rules = rules })
-    const count = applyAllRules(rules, skipId)
-    setLastRule({ ...rule, count, editing: false, draft: rule.pattern })
-    setRuleHint(null)
-  }
-
-  /** Muster der zuletzt erstellten Regel ändern und neu anwenden. */
-  const changeLastRule = (pattern) => {
-    const rules = data.rules.map((r) => (r.id === lastRule.id ? { ...r, pattern: pattern.trim() } : r))
-    update((d) => { d.rules = rules })
+    for (const s of suggestions) {
+      if (!s.pattern.trim() || !s.positionId) continue
+      const rule = { id: uid(), pattern: s.pattern.trim(), positionId: s.positionId }
+      const conflict = rules.findIndex((r) => ruleMatches(r, s.sample || s.pattern))
+      rules.splice(conflict >= 0 ? conflict : rules.length, 0, rule)
+    }
+    const ids = new Set(suggestions.map((s) => s.id))
+    update((d) => {
+      d.rules = rules
+      d.pendingRules = (d.pendingRules || []).filter((s) => !ids.has(s.id))
+    })
     const count = applyAllRules(rules)
-    setLastRule({ ...lastRule, pattern: pattern.trim(), draft: pattern.trim(), count, editing: false })
+    flash(`${suggestions.length} Regel${suggestions.length > 1 ? 'n' : ''} erstellt${count ? `, ${count} weitere Buchung${count > 1 ? 'en' : ''} zugeordnet` : ''}.`)
   }
-
-  /** Zuletzt erstellte Regel entfernen; von ihr zugeordnete (nicht bestätigte) Buchungen werden wieder offen. */
-  const undoLastRule = () => {
-    const rules = data.rules.filter((r) => r.id !== lastRule.id)
-    update((d) => { d.rules = rules })
-    applyAllRules(rules)
-    setLastRule(null)
-    flash('Regel entfernt.')
+  const discardSuggestions = (suggestions) => {
+    const ids = new Set(suggestions.map((s) => s.id))
+    update((d) => { d.pendingRules = (d.pendingRules || []).filter((s) => !ids.has(s.id)) })
   }
+  const editSuggestion = (id, fn) => update((d) => { const s = (d.pendingRules || []).find((x) => x.id === id); if (s) fn(s) })
   const setIgnored = (list, ignored) => {
     if (!guard(list)) return
     tx.updateTx(list.map((t) => t.id), (x) => {
@@ -134,16 +139,16 @@ export default function Transactions({ data, update, month, tx }) {
     if (!pid || !guard(list)) return
     if (pid === '__ignore') return setIgnored(list, true)
     tx.updateTx(list.map((t) => t.id), (x) => { x.positionId = pid; x.status = 'manual'; x.ruleId = null; x.override = true })
+    queueSuggestions(list, pid)
   }
-  const applyAllRules = (rules = data.rules, skipId = null) => {
+  const applyAllRules = (rules = data.rules) => {
     // Anzahl vorab auf dem aktuellen Stand zählen (die Zustandsänderung selbst läuft verzögert)
-    const changed = tx.transactions.filter((t) => t.id !== skipId && !tx.isClosed(monthOf(t.date)) && applyRules({ ...t }, rules)).length
+    const changed = tx.transactions.filter((t) => !tx.isClosed(monthOf(t.date)) && applyRules({ ...t }, rules)).length
     tx.updateYears((d) => {
       for (const y of Object.keys(d)) for (const t of d[y].transactions) if (!tx.isClosed(monthOf(t.date))) applyRules(t, rules)
     })
     return changed
   }
-  const createRule = () => addRule(ruleHint.pattern, ruleHint.positionId, ruleHint.text)
   const link = (a, b) => {
     tx.updateTx([a.id, b.id], (x) => { x.linkedId = x.id === a.id ? b.id : a.id })
   }
@@ -300,6 +305,12 @@ export default function Transactions({ data, update, month, tx }) {
       ) : (
         <>
 
+          {pending.length > 0 && (
+            <div ref={suggestionsRef} className="scroll-mt-4">
+              <RuleSuggestions data={data} tx={tx} pending={pending} onCreate={createRules} onDiscard={discardSuggestions} onEdit={editSuggestion} />
+            </div>
+          )}
+
           {offsets.length > 0 && (
             <Card title="Mögliche Ausgleichsbuchungen" subtitle="Umbuchung mit gleichem Betrag kurz nach einer Ausgabe – z. B. aus dem falschen Konto bezahlt und wieder ausgeglichen">
               {offsets.map(({ transfer, expense }) => (
@@ -351,11 +362,6 @@ export default function Transactions({ data, update, month, tx }) {
               </>
             ) : (
               <>
-                <label className="flex cursor-pointer items-center gap-1.5 text-ink-2" title="Beim Wählen einer Position wird sofort eine Regel erstellt und auf alle offenen Buchungen angewendet">
-                  <input type="checkbox" checked={autoRule} onChange={(e) => setAutoRule(e.target.checked)} className="accent-[var(--accent)]" />
-                  Beim Zuordnen gleich Regel erstellen
-                </label>
-                <span className="text-ink-3">·</span>
                 <span className="text-ink-3">{visible.length} Buchungen · Summe {fmtCHF(visible.filter((t) => t.status !== 'ignored').reduce((s, t) => s + t.amount, 0))}</span>
                 {confirmable.length > 0 && (
                   <Button className="ml-auto" onClick={() => confirmTx(confirmable)}>{Icon.check} Alle {confirmable.length} sichtbaren zugeordneten bestätigen</Button>
@@ -433,49 +439,79 @@ export default function Transactions({ data, update, month, tx }) {
         </>
       )}
 
-      {(lastRule || ruleHint) && <div className="h-16" />}
-
-      {/* Regel wurde automatisch erstellt → bearbeiten oder rückgängig */}
-      {lastRule && !ruleHint && (
-        <BottomBar onClose={() => setLastRule(null)}>
-          <span className="text-good">{Icon.check}</span>
-          {lastRule.editing ? (
-            <>
-              <span className="text-ink-2">Texte mit</span>
-              <input
-                autoFocus
-                value={lastRule.draft}
-                onChange={(e) => setLastRule({ ...lastRule, draft: e.target.value })}
-                onKeyDown={(e) => e.key === 'Enter' && lastRule.draft.trim() && changeLastRule(lastRule.draft)}
-                className="w-48 rounded-md border border-line bg-surface px-2 py-1 outline-none focus:border-accent"
-              />
-              <span className="text-ink-2">→ <b className="text-ink">{positionName(data, lastRule.positionId)}</b></span>
-              <Button variant="primary" onClick={() => changeLastRule(lastRule.draft)} disabled={!lastRule.draft.trim()}>Übernehmen</Button>
-            </>
-          ) : (
-            <>
-              <span className="text-ink-2">
-                Regel <b className="text-ink">«{lastRule.pattern}»</b> → <b className="text-ink">{positionName(data, lastRule.positionId)}</b> erstellt
-                {lastRule.count > 0 ? `, ${lastRule.count} weitere zugeordnet` : ''}
-              </span>
-              <Button variant="ghost" onClick={() => setLastRule({ ...lastRule, editing: true })}>Muster bearbeiten</Button>
-              <Button variant="ghost" onClick={undoLastRule}>Rückgängig</Button>
-            </>
-          )}
-        </BottomBar>
-      )}
-
-      {/* Automatik aus → nachfragen */}
-      {ruleHint && (
-        <BottomBar onClose={() => setRuleHint(null)}>
-          <span className="text-ink-2">Künftig immer so zuordnen? Texte mit</span>
-          <input value={ruleHint.pattern} onChange={(e) => setRuleHint({ ...ruleHint, pattern: e.target.value })} className="w-48 rounded-md border border-line bg-surface px-2 py-1 outline-none focus:border-accent" />
-          <span className="text-ink-2">→ <b className="text-ink">{positionName(data, ruleHint.positionId)}</b>{ruleHint.similar > 0 && ` (betrifft ${ruleHint.similar} weitere)`}</span>
-          <Button variant="ghost" onClick={() => setRuleHint(null)}>Nein</Button>
-          <Button variant="primary" onClick={createRule} disabled={!ruleHint.pattern.trim()}>Regel erstellen</Button>
-        </BottomBar>
+      {/* Hinweis unten: offene Regelvorschläge – immer sichtbar */}
+      {pending.length > 0 && tab === 'list' && (
+        <>
+          <div className="h-16" />
+          <BottomBar>
+            <span className="text-ink-2">
+              <b className="text-ink">{pending.length} Regelvorschl{pending.length > 1 ? 'äge' : 'ag'}</b> warten auf deine Entscheidung
+            </span>
+            <Button variant="primary" onClick={() => suggestionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ansehen</Button>
+          </BottomBar>
+        </>
       )}
     </div>
+  )
+}
+
+/**
+ * Liste der Regelvorschläge aus manuellen Zuordnungen.
+ * Jeder Vorschlag muss bewusst erstellt oder verworfen werden.
+ */
+function RuleSuggestions({ data, tx, pending, onCreate, onDiscard, onEdit }) {
+  const info = (s) => {
+    const rule = { pattern: s.pattern }
+    const matching = tx.transactions.filter((t) => t.status !== 'ignored' && ruleMatches(rule, t.text))
+    return {
+      // offene/automatische Buchungen, die die Regel zusätzlich zuordnen würde
+      more: matching.filter((t) => ['open', 'auto'].includes(t.status) && t.positionId !== s.positionId).length,
+      // manuell anders zugeordnete Buchungen mit gleichem Text → Regel evtl. ungeeignet
+      conflicts: matching.filter((t) => ['manual', 'confirmed'].includes(t.status) && t.positionId && t.positionId !== s.positionId).length,
+    }
+  }
+  return (
+    <Card
+      title={`Regelvorschläge (${pending.length})`}
+      subtitle="Aus deinen Zuordnungen. Entscheide pro Händler, ob künftig automatisch zugeordnet werden soll – das Muster kannst du vorher kürzen (z. B. «Migros» statt «Migros Take Away»)."
+      actions={
+        <>
+          <Button variant="ghost" onClick={() => confirm(`Alle ${pending.length} Vorschläge verwerfen?`) && onDiscard(pending)}>Alle verwerfen</Button>
+          <Button variant="primary" onClick={() => onCreate(pending)}>Alle {pending.length} erstellen</Button>
+        </>
+      }
+    >
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] gap-2 border-b border-line pb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-3">
+        <div className="px-2">Text enthält</div><div className="px-1">Position</div><div className="px-2">Wirkung</div><div />
+      </div>
+      {pending.map((s) => {
+        const { more, conflicts } = info(s)
+        return (
+          <div key={s.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] items-center gap-2 border-b border-line py-1 text-[13px] last:border-b-0">
+            <div>
+              <input
+                defaultValue={s.pattern}
+                key={s.pattern}
+                onBlur={(e) => e.target.value.trim() && e.target.value !== s.pattern && onEdit(s.id, (x) => { x.pattern = e.target.value.trim() })}
+                onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                className="w-full rounded-md border border-line bg-surface px-2 py-1 outline-none focus:border-accent"
+              />
+              {s.sample && s.sample !== s.pattern && <div className="truncate px-2 text-[11px] text-ink-3">z. B. «{s.sample}»</div>}
+            </div>
+            <PositionSelect data={data} value={s.positionId} onChange={(v) => v && onEdit(s.id, (x) => { x.positionId = v })} />
+            <div className="px-2 text-[12px]">
+              <span className="text-ink-2">{s.hits > 1 ? `${s.hits}× so zugeordnet` : '1× so zugeordnet'}</span>
+              {more > 0 && <span className="text-ink-2"> · ordnet {more} weitere zu</span>}
+              {conflicts > 0 && <div className="text-warn">{Icon.warn} {conflicts} gleiche Buchung{conflicts > 1 ? 'en' : ''} anders zugeordnet</div>}
+            </div>
+            <div className="flex gap-1.5">
+              <Button variant="ghost" onClick={() => onDiscard([s])}>Verwerfen</Button>
+              <Button onClick={() => onCreate([s])}>{Icon.check} Erstellen</Button>
+            </div>
+          </div>
+        )
+      })}
+    </Card>
   )
 }
 
@@ -485,7 +521,7 @@ function BottomBar({ children, onClose }) {
     <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex justify-center px-4">
       <div className="pointer-events-auto flex max-w-[960px] flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-3 text-[13px] shadow-[0_8px_30px_rgba(0,0,0,0.18)]">
         {children}
-        <IconButton title="Schliessen" onClick={onClose}>×</IconButton>
+        {onClose && <IconButton title="Schliessen" onClick={onClose}>×</IconButton>}
       </div>
     </div>
   )

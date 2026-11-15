@@ -101,7 +101,8 @@ Budget/
 
 - Zugeordnet wird auf **Positionen** (nicht nur Gruppen); Gruppensummen ergeben sich daraus.
 - **Regeln**: Textmuster (Teilstring oder regulärer Ausdruck) → Position oder „ignorieren“, mit Priorität.
-- Beim manuellen Zuordnen fragt die App: *„Künftig immer so zuordnen?“* → erzeugt eine Regel.
+- Manuelle Zuordnungen erzeugen **Regelvorschläge** (einer pro Händler). Sie werden in einer Liste gesammelt
+  und müssen bewusst erstellt oder verworfen werden – einzeln oder alle auf einmal. Das Muster ist vorher anpassbar.
 - **Manuelle Zuordnungen haben immer Vorrang** und werden von Regeln oder erneutem Import nie überschrieben.
 - Nicht erkannte Buchungen landen in **„Nicht zugeordnet“**.
 - Aufteilen einer Buchung auf mehrere Positionen (Split) ist eine mögliche spätere Erweiterung.

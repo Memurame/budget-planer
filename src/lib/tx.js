@@ -27,6 +27,7 @@ export function migrate(data) {
     accounts: data.accounts || [],
     rules: data.rules || defaultRules(),
     importMappings: data.importMappings || {},
+    pendingRules: data.pendingRules || [],
   }
 }
 
