@@ -59,8 +59,27 @@ balances: [
 closedMonths: ['YYYY-MM', ...]
 ```
 
-Bei vielen Buchungen können diese später pro Jahr in eigene Dateien ausgelagert werden
-(`transactions-YYYY.json`), damit die Hauptdatei schlank bleibt.
+### Dateiaufteilung
+
+Buchungen werden **von Anfang an pro Jahr in eigenen Dateien** gespeichert:
+
+```
+Budget/
+├── budget.json              # Budget, Rücklagen, Konten, Regeln, Versionen, Einstellungen
+├── buchungen/
+│   ├── 2026.json            # transactions, balances, closedMonths dieses Jahres
+│   └── 2027.json
+└── backups/
+    ├── budget-YYYY-MM-DD.json
+    └── buchungen-2026-YYYY-MM-DD.json
+```
+
+- Zuordnung zum Jahr über das **Kaufdatum** der Buchung.
+- Die App lädt nur die Jahre, die gerade gebraucht werden (gewählter Monat, Verlauf/Statistik).
+- Gespeichert wird nur die geänderte Datei, jeweils atomar (temporäre Datei, dann umbenennen).
+- Die tägliche Sicherung gilt pro Datei.
+- Abgeschlossene Jahre bleiben unverändert liegen und lassen sich einfach archivieren.
+- Beim Ändern des Speicherorts wird der ganze Ordner mitgenommen.
 
 ## 3. Konten
 
