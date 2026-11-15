@@ -107,13 +107,30 @@ export function useTxStore() {
        * Buchungen löschen. Aus einem CSV-Import stammende werden gemerkt (deletedIds),
        * damit sie beim erneuten Import derselben Datei nicht zurückkommen.
        */
+      /**
+       * Buchungen hinzufügen, aber nur, wenn es sie noch nicht gibt, sie nicht gelöscht wurden
+       * und der Monat nicht abgeschlossen ist (für wiederkehrende Buchungen). Jahre müssen geladen sein.
+       */
+      addTxUnique: (list) =>
+        updateYears((d) => {
+          for (const t of list) {
+            const y = yearOf(t.date)
+            if (!d[y]) continue
+            const yr = d[y]
+            if ((yr.closedMonths || []).includes(t.date.slice(0, 7))) continue
+            if ((yr.deletedIds || []).includes(t.id)) continue
+            if (yr.transactions.some((x) => x.id === t.id)) continue
+            yr.transactions.push(t)
+          }
+        }),
       removeTx: (ids) =>
         updateYears((d) => {
           const set = new Set([].concat(ids))
           for (const y of Object.keys(d)) {
             const gone = d[y].transactions.filter((t) => set.has(t.id))
             if (!gone.length) continue
-            d[y].deletedIds = [...new Set([...(d[y].deletedIds || []), ...gone.filter((t) => t.source === 'csv').map((t) => t.id)])]
+            // CSV- und wiederkehrende Buchungen merken, damit sie nicht erneut entstehen
+            d[y].deletedIds = [...new Set([...(d[y].deletedIds || []), ...gone.filter((t) => t.source === 'csv' || t.source === 'recurring').map((t) => t.id)])]
             d[y].transactions = d[y].transactions.filter((t) => !set.has(t.id))
           }
           // Verknüpfungen zu gelöschten Buchungen lösen

@@ -1,6 +1,8 @@
 import { Fragment, useMemo, useRef, useState } from 'react'
 import { Card, Button, IconButton, Badge, Icon, AmountInput } from './ui.jsx'
 import PositionSelect, { positionName } from './PositionSelect.jsx'
+import EntryForm from './EntryForm.jsx'
+import RecurringList from './RecurringList.jsx'
 import { fmtCHF, fmtDate, fmtPct } from '../lib/format.js'
 import { monthLabel, uid } from '../lib/calc.js'
 import { openCsv } from '../lib/storage.js'
@@ -313,15 +315,17 @@ export default function Transactions({ data, update, month, tx }) {
         </Card>
       )}
 
-      {showManual && <ManualEntry data={data} tx={tx} month={month} onDone={(m) => { setShowManual(false); flash(m) }} />}
+      {showManual && <EntryForm data={data} update={update} tx={tx} month={month} onCancel={() => setShowManual(false)} onDone={(m) => { setShowManual(false); flash(m) }} />}
 
       <div className="flex items-center gap-1 border-b border-line">
-        {[['list', 'Buchungen'], ['rules', `Regeln (${data.rules.length})`]].map(([v, l]) => (
+        {[['list', 'Buchungen'], ['recurring', `Wiederkehrend (${(data.recurring || []).length})`], ['rules', `Regeln (${data.rules.length})`]].map(([v, l]) => (
           <button key={v} onClick={() => setTab(v)} className={`-mb-px border-b-2 px-3 py-2 text-[14px] ${tab === v ? 'border-accent font-medium text-accent' : 'border-transparent text-ink-2 hover:text-ink'}`}>{l}</button>
         ))}
       </div>
 
-      {tab === 'rules' ? (
+      {tab === 'recurring' ? (
+        <RecurringList data={data} update={update} tx={tx} onAdd={() => { setShowManual(true); window.scrollTo?.(0, 0); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+      ) : tab === 'rules' ? (
         <RulesEditor data={data} update={update} tx={tx} onApply={(rules) => { const n = applyAllRules(rules); flash(n ? `${n} Buchungen neu zugeordnet.` : 'Keine Änderungen.') }} />
       ) : (
         <>
@@ -427,7 +431,21 @@ export default function Transactions({ data, update, month, tx }) {
                             </div>
                             <div className="text-[11px] text-ink-3">{[t.kind, t.source === 'manual' && 'manuell erfasst', t.source === 'correction' && 'Saldo-Korrektur'].filter(Boolean).join(' · ')}</div>
                           </td>
-                          <td className="truncate px-2 text-ink-2">{accountName(t.accountId)}</td>
+                          <td className="truncate px-1 text-ink-2">
+                            {t.source === 'csv' ? (
+                              <span className="px-1" title="Aus dem Kontoauszug – Konto ist fest">{accountName(t.accountId)}</span>
+                            ) : (
+                              <select
+                                value={t.accountId || ''}
+                                onChange={(e) => guard([t]) && tx.updateTx(t.id, (x) => { x.accountId = e.target.value || null })}
+                                className="w-full truncate rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent"
+                                title="Konto ändern"
+                              >
+                                <option value="">– ohne Konto –</option>
+                                {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                              </select>
+                            )}
+                          </td>
                           <td className="px-1">
                             {t.status === 'ignored' ? (
                               <span className="px-1 text-ink-3">–</span>
@@ -619,59 +637,6 @@ const Mini = ({ label, value }) => (
     <div className="num text-[16px] font-semibold">{value}</div>
   </div>
 )
-
-/** Manuelle Buchung erfassen (z. B. Zahlungen vom Lohnkonto). */
-function ManualEntry({ data, tx, month, onDone }) {
-  const today = new Date().toISOString().slice(0, 10)
-  const [f, setF] = useState({ date: today.startsWith(month) ? today : `${month}-01`, text: '', amount: 0, sign: -1, accountId: data.accounts[0]?.id || '', positionId: null })
-  const set = (k, v) => setF((x) => ({ ...x, [k]: v }))
-  const save = async () => {
-    if (!f.text.trim() || !f.amount) return
-    if (tx.isClosed(monthOf(f.date)) && !confirm(`${monthLabel(monthOf(f.date))} ist abgeschlossen. Trotzdem erfassen?`)) return
-    await tx.ensureYears([yearOf(f.date)])
-    tx.addTx({
-      id: `man-${uid()}`,
-      accountId: f.accountId || null,
-      date: f.date,
-      bookedDate: f.date,
-      text: f.text.trim(),
-      amount: f.sign * Math.abs(f.amount),
-      source: 'manual',
-      status: f.positionId ? 'manual' : 'open',
-      positionId: f.positionId,
-      override: true,
-    })
-    onDone(`Buchung «${f.text.trim()}» erfasst.`)
-  }
-  const input = 'rounded-lg border border-line bg-surface px-2 py-1.5 text-[14px] outline-none focus:border-accent'
-  return (
-    <Card title="Buchung erfassen" subtitle="Für Zahlungen ohne Kontoauszug, z. B. direkt vom Lohnkonto">
-      <div className="grid items-end gap-3 md:grid-cols-[140px_1fr_150px_150px_1fr_auto]">
-        <label className="text-[12px] text-ink-3">Datum<input type="date" value={f.date} onChange={(e) => set('date', e.target.value)} className={`${input} num mt-1 w-full`} /></label>
-        <label className="text-[12px] text-ink-3">Text<input value={f.text} onChange={(e) => set('text', e.target.value)} placeholder="z. B. Versicherung" className={`${input} mt-1 w-full`} /></label>
-        <label className="text-[12px] text-ink-3">Betrag
-          <div className="mt-1 flex items-center gap-1">
-            <select value={f.sign} onChange={(e) => set('sign', Number(e.target.value))} className={`${input} px-1`}>
-              <option value={-1}>−</option>
-              <option value={1}>+</option>
-            </select>
-            <div className={`${input} flex-1 p-0`}><AmountInput value={f.amount} onChange={(v) => set('amount', v)} /></div>
-          </div>
-        </label>
-        <label className="text-[12px] text-ink-3">Konto
-          <select value={f.accountId} onChange={(e) => set('accountId', e.target.value)} className={`${input} mt-1 w-full`}>
-            <option value="">– ohne Konto –</option>
-            {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </label>
-        <label className="text-[12px] text-ink-3">Position
-          <div className={`${input} mt-1 p-0.5`}><PositionSelect data={data} value={f.positionId} onChange={(v) => set('positionId', v)} /></div>
-        </label>
-        <Button variant="primary" onClick={save} disabled={!f.text.trim() || !f.amount}>Speichern</Button>
-      </div>
-    </Card>
-  )
-}
 
 /** Regeln: Textmuster → Position oder ignorieren. Reihenfolge = Priorität. */
 function RulesEditor({ data, update, tx, onApply }) {

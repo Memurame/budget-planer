@@ -157,6 +157,19 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
 - Eingabemaske: Datum, Betrag, Text, Konto, Position.
 - Für Konten ohne Export (z. B. Zahlungen direkt vom Lohnkonto).
 
+## 8a. Wiederkehrende Buchungen und Umbuchungen
+
+- **Umbuchung** zwischen zwei eigenen Konten (z. B. Spaces/Pockets): zwei verknüpfte Buchungen (−/+),
+  beide «ignoriert» – zählen nicht als Ausgabe, aber im Saldo-Abgleich beider Konten.
+- **Wiederkehrende Buchungen**: Vorlage in `budget.json` (`recurring`) mit Art (Ausgabe, Gutschrift,
+  Umbuchung), Betrag, Konto, Position, Intervall (monatlich, vierteljährlich, jährlich), Tag, Start, optional Ende.
+  - Beim Start der App werden alle fälligen Termine bis heute als Buchungen erzeugt
+    (ID pro Vorlage und Monat → nie doppelt; gelöschte werden gemerkt; abgeschlossene Monate werden übersprungen).
+  - Betragsänderungen gelten ab dem nächsten Termin; bereits erzeugte Buchungen bleiben unverändert.
+  - Pausieren: keine neuen Buchungen; Termine während der Pause werden nicht nachgeholt.
+- Manuelle Buchungen: Konto ist Pflicht (sobald Konten existieren), das zuletzt gewählte wird vorgeschlagen;
+  das Konto lässt sich in der Liste nachträglich ändern (nicht bei CSV-Buchungen).
+
 ## 9. Soll/Ist-Auswertung
 
 - **Budget-Seite**: pro Position zusätzlich *Effektiv* und *Abweichung* mit Farbbalken

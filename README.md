@@ -14,6 +14,9 @@ Lokaler Budget-Planer für NixOS (Electron aus nixpkgs). Alle Daten bleiben auf 
 - **Buchungen & Soll/Ist**: Kontoauszug (Revolut-CSV) importieren oder Buchungen von Hand erfassen,
   Positionen zuordnen, Regeln aus Vorschlägen erstellen, Buchungen aufteilen, kontrollieren und bestätigen
   (auch gesammelt), Monat abschliessen. Budget, Übersicht, Rücklagen und Statistik zeigen Soll gegenüber Ist.
+- **Manuelle Buchungen**: Ausgabe, Gutschrift oder Umbuchung zwischen eigenen Konten (z. B. Spaces/Pockets),
+  einmalig oder **wiederkehrend** (monatlich, vierteljährlich, jährlich) – wiederkehrende Buchungen werden
+  an jedem Termin automatisch erzeugt.
 - **Konten**: Girokonto, Pockets, externe Konten; Saldo-Abgleich mit Korrekturbuchungen.
 - Statistiken, Verlauf, Versionen zum Vergleichen, CSV-Export, hell/dunkel
 

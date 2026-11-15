@@ -13,6 +13,7 @@ import Accounts from './components/Accounts.jsx'
 import { useTheme } from './lib/theme.js'
 import { useTxStore } from './lib/useTx.js'
 import { actualByPosition, migrate, monthProgress } from './lib/tx.js'
+import { buildOccurrences, todayStr } from './lib/recurring.js'
 
 const NAV = [
   { id: 'overview', label: 'Übersicht', icon: Icon.home },
@@ -74,6 +75,17 @@ export default function App() {
   }, [])
 
   const replaceData = useCallback((next) => { dirty.current = true; setData(next) }, [])
+
+  // Wiederkehrende Buchungen: fällige Termine bis heute erzeugen (beim Start und bei Änderungen an Vorlagen)
+  const recurringKey = data ? JSON.stringify(data.recurring || []) : ''
+  useEffect(() => {
+    if (!data || !(data.recurring || []).length) return
+    const list = data.recurring.flatMap((tpl) => buildOccurrences(tpl, todayStr()))
+    if (!list.length) return
+    const years = [...new Set(list.map((t) => Number(t.date.slice(0, 4))))]
+    ensureYears(years).then(() => txStore.addTxUnique(list))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recurringKey, ensureYears])
 
   const s = useMemo(() => (data ? summary(data, month) : null), [data, month])
   const tx = useMemo(

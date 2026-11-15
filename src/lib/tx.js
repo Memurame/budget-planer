@@ -28,6 +28,7 @@ export function migrate(data) {
     rules: data.rules || defaultRules(),
     importMappings: data.importMappings || {},
     pendingRules: data.pendingRules || [],
+    recurring: data.recurring || [],
   }
 }
 
