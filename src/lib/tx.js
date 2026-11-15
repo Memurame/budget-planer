@@ -31,7 +31,7 @@ export function migrate(data) {
   }
 }
 
-export const emptyYear = () => ({ transactions: [], balances: [], closedMonths: [] })
+export const emptyYear = () => ({ transactions: [], balances: [], closedMonths: [], deletedIds: [] })
 export const yearOf = (date) => Number(String(date).slice(0, 4))
 export const monthOf = (date) => String(date).slice(0, 7)
 
@@ -181,16 +181,17 @@ export function suggestPattern(text) {
 
 // ── Auswertung ──────────────────────────────────────────────────
 
-export const counts = (tx) => !!tx.positionId && tx.status !== 'ignored'
+/** Aufteilung einer Buchung auf Positionen: Split-Zeilen oder die eine zugeordnete Position. */
+export const allocations = (t) => (t.splits?.length ? t.splits : t.positionId ? [{ positionId: t.positionId, amount: t.amount }] : [])
+export const isSplit = (t) => !!t.splits?.length
+/** Ist die Buchung vollständig zugeordnet (Position oder gültige Aufteilung)? */
+export const isAssigned = (t) => (isSplit(t) ? t.splits.every((s) => s.positionId) : !!t.positionId)
+
+export const counts = (tx) => tx.status !== 'ignored' && allocations(tx).length > 0
 
 /** Effektive Ausgaben pro Position in einem Monat (positiv = ausgegeben). */
 export function actualByPosition(transactions, key) {
-  const out = {}
-  for (const t of transactions) {
-    if (!counts(t) || monthOf(t.date) !== key) continue
-    out[t.positionId] = (out[t.positionId] || 0) - t.amount
-  }
-  return out
+  return actualByPositionRange(transactions, key, key)
 }
 
 /** Effektive Ausgaben pro Position über einen Zeitraum [fromKey, toKey]. */
@@ -199,7 +200,7 @@ export function actualByPositionRange(transactions, fromKey, toKey) {
   for (const t of transactions) {
     const m = monthOf(t.date)
     if (!counts(t) || m < fromKey || m > toKey) continue
-    out[t.positionId] = (out[t.positionId] || 0) - t.amount
+    for (const a of allocations(t)) if (a.positionId) out[a.positionId] = (out[a.positionId] || 0) - a.amount
   }
   return out
 }

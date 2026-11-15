@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import { Card, Button, IconButton, Badge, Icon, AmountInput } from './ui.jsx'
 import PositionSelect, { positionName } from './PositionSelect.jsx'
 import { fmtCHF, fmtDate, fmtPct } from '../lib/format.js'
 import { monthLabel, uid } from '../lib/calc.js'
 import { openCsv } from '../lib/storage.js'
-import { STATUS, applyRules, findRule, monthOf, parseRevolut, ruleMatches, suggestOffsets, suggestPattern, yearOf } from '../lib/tx.js'
+import { STATUS, allocations, isAssigned, isSplit, applyRules, findRule, monthOf, parseRevolut, ruleMatches, suggestOffsets, suggestPattern, yearOf } from '../lib/tx.js'
 
 const FILTERS = [
   ['all', 'Alle'],
@@ -25,6 +25,7 @@ export default function Transactions({ data, update, month, tx }) {
   const [selected, setSelected] = useState(new Set())
   const [imp, setImp] = useState(null)
   const suggestionsRef = useRef(null)
+  const [splitId, setSplitId] = useState(null)
   const pending = data.pendingRules || []
   const [showManual, setShowManual] = useState(false)
   const [msg, setMsg] = useState('')
@@ -49,7 +50,7 @@ export default function Transactions({ data, update, month, tx }) {
       (t) =>
         (status === 'all' || t.status === status) &&
         (!accountId || t.accountId === accountId) &&
-        (!positionId || t.positionId === positionId) &&
+        (!positionId || allocations(t).some((a) => a.positionId === positionId)) &&
         (!q || t.text.toLowerCase().includes(q) || String(Math.abs(t.amount)).includes(q)),
     )
   }, [inScope, status, accountId, positionId, search])
@@ -129,10 +130,28 @@ export default function Transactions({ data, update, month, tx }) {
     })
   }
   const confirmTx = (list) => {
-    const ok = list.filter((t) => t.positionId && t.status !== 'confirmed' && t.status !== 'ignored')
+    const ok = list.filter((t) => isAssigned(t) && t.status !== 'confirmed' && t.status !== 'ignored')
     if (!ok.length || !guard(ok)) return
     tx.updateTx(ok.map((t) => t.id), (x) => { x.status = 'confirmed' })
     flash(`${ok.length} Buchung${ok.length > 1 ? 'en' : ''} bestätigt.`)
+  }
+  const removeMany = (list) => {
+    if (!list.length || !guard(list)) return
+    const csv = list.filter((t) => t.source === 'csv').length
+    if (!confirm(`${list.length} Buchung${list.length > 1 ? 'en' : ''} löschen?${csv ? `\n\n${csv} stamm${csv > 1 ? 'en' : 't'} aus einem CSV-Import und wird beim erneuten Import derselben Datei übersprungen.` : ''}`)) return
+    tx.removeTx(list.map((t) => t.id))
+    setSelected(new Set())
+    flash(`${list.length} Buchung${list.length > 1 ? 'en' : ''} gelöscht.`)
+  }
+  const saveSplit = (t, splits) => {
+    if (!guard([t])) return
+    tx.updateTx(t.id, (x) => {
+      x.override = true
+      x.ruleId = null
+      if (splits) { x.splits = splits; x.positionId = null; x.status = 'manual' }
+      else { delete x.splits; x.status = x.positionId ? 'manual' : 'open' }
+    })
+    setSplitId(null)
   }
   const unconfirm = (t) => guard([t]) && tx.updateTx(t.id, (x) => { x.status = 'manual' })
   const assignMany = (list, pid) => {
@@ -169,7 +188,8 @@ export default function Transactions({ data, update, month, tx }) {
   const preview = useMemo(() => {
     if (!imp) return null
     const existing = new Set(tx.transactions.map((t) => t.id))
-    const fresh = imp.rows.filter((r) => !existing.has(r.id))
+    const fresh = imp.rows.filter((r) => !existing.has(r.id) && !tx.deletedIds.has(r.id))
+    const deleted = imp.rows.filter((r) => !existing.has(r.id) && tx.deletedIds.has(r.id)).length
     let ignored = 0, auto = 0
     for (const r of fresh) {
       const rule = findRule(data.rules, r.text)
@@ -178,7 +198,7 @@ export default function Transactions({ data, update, month, tx }) {
     }
     const months = [...new Set(imp.rows.map((r) => monthOf(r.date)))].sort()
     const closedHit = months.filter((m) => tx.isClosed(m))
-    return { fresh, duplicates: imp.rows.length - fresh.length, ignored, auto, open: fresh.length - ignored - auto, months, closedHit }
+    return { fresh, deleted, duplicates: imp.rows.length - fresh.length - deleted, ignored, auto, open: fresh.length - ignored - auto, months, closedHit }
   }, [imp, tx.transactions, data.rules])
 
   const doImport = () => {
@@ -214,7 +234,7 @@ export default function Transactions({ data, update, month, tx }) {
   const toggle = (id) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const allVisibleSelected = visible.length > 0 && visible.every((t) => selected.has(t.id))
   const selectedList = visible.filter((t) => selected.has(t.id))
-  const confirmable = visible.filter((t) => t.positionId && ['auto', 'manual'].includes(t.status))
+  const confirmable = visible.filter((t) => isAssigned(t) && ['auto', 'manual'].includes(t.status))
 
   const p = tx.progress
   const pct = p.relevant ? p.confirmed / p.relevant : 0
@@ -283,6 +303,7 @@ export default function Transactions({ data, update, month, tx }) {
             <div className="grid grid-cols-2 gap-2 text-[13px]">
               <Mini label="Neu" value={preview.fresh.length} />
               <Mini label="Bereits vorhanden" value={preview.duplicates} />
+              {preview.deleted > 0 && <Mini label="Früher gelöscht (übersprungen)" value={preview.deleted} />}
               <Mini label="Automatisch zugeordnet" value={preview.auto} />
               <Mini label="Ignoriert (Umbuchungen)" value={preview.ignored} />
               <Mini label="Offen (zuordnen)" value={preview.open} />
@@ -358,6 +379,7 @@ export default function Transactions({ data, update, month, tx }) {
                 <Button variant="primary" onClick={() => { confirmTx(selectedList); setSelected(new Set()) }}>{Icon.check} Bestätigen</Button>
                 <div className="w-56"><PositionSelect data={data} value="" allowIgnore placeholder="Position zuweisen …" onChange={(v) => { assignMany(selectedList, v); setSelected(new Set()) }} className="rounded-lg border-line bg-surface" /></div>
                 <Button onClick={() => { setIgnored(selectedList, false); setSelected(new Set()) }}>Nicht mehr ignorieren</Button>
+                <Button variant="danger" onClick={() => removeMany(selectedList)}>{Icon.trash} Löschen</Button>
                 <Button variant="ghost" onClick={() => setSelected(new Set())}>Auswahl aufheben</Button>
               </>
             ) : (
@@ -394,7 +416,8 @@ export default function Transactions({ data, update, month, tx }) {
                     {visible.map((t) => {
                       const linked = t.linkedId && byId[t.linkedId]
                       return (
-                        <tr key={t.id} className={`group border-b border-line last:border-b-0 ${selected.has(t.id) ? 'bg-accent-soft/50' : 'hover:bg-surface-2/60'} ${t.status === 'ignored' ? 'text-ink-3' : ''}`}>
+                        <Fragment key={t.id}>
+                        <tr className={`group border-b border-line last:border-b-0 ${selected.has(t.id) ? 'bg-accent-soft/50' : 'hover:bg-surface-2/60'} ${t.status === 'ignored' ? 'text-ink-3' : ''}`}>
                           <td className="py-1.5 pl-4"><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} className="accent-[var(--accent)]" /></td>
                           <td className="num px-2" title={t.bookedDate && t.bookedDate !== t.date ? `verbucht ${fmtDate(t.bookedDate)}` : undefined}>{fmtDate(t.date)}</td>
                           <td className="px-2">
@@ -408,6 +431,15 @@ export default function Transactions({ data, update, month, tx }) {
                           <td className="px-1">
                             {t.status === 'ignored' ? (
                               <span className="px-1 text-ink-3">–</span>
+                            ) : isSplit(t) ? (
+                              <button
+                                className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left hover:bg-surface-2"
+                                title={t.splits.map((x) => `${positionName(data, x.positionId) || '–'}: ${fmtCHF(x.amount)}`).join('\n')}
+                                onClick={() => setSplitId(splitId === t.id ? null : t.id)}
+                                disabled={t.status === 'confirmed'}
+                              >
+                                {Icon.split}<span className="truncate">Aufgeteilt auf {t.splits.length} Positionen</span>
+                              </button>
                             ) : (
                               <PositionSelect data={data} value={t.positionId} onChange={(v) => assign(t, v)} allowIgnore disabled={t.status === 'confirmed'} />
                             )}
@@ -421,14 +453,25 @@ export default function Transactions({ data, update, month, tx }) {
                               {t.status === 'confirmed' ? (
                                 <IconButton title="Bestätigung aufheben" onClick={() => unconfirm(t)}>{Icon.lock}</IconButton>
                               ) : t.status !== 'ignored' ? (
-                                <IconButton title={t.positionId ? 'Bestätigen' : 'Zuerst eine Position wählen'} disabled={!t.positionId} className="hover:text-good disabled:opacity-30" onClick={() => confirmTx([t])}>{Icon.check}</IconButton>
+                                <IconButton title={isAssigned(t) ? 'Bestätigen' : 'Zuerst eine Position wählen'} disabled={!isAssigned(t)} className="hover:text-good disabled:opacity-30" onClick={() => confirmTx([t])}>{Icon.check}</IconButton>
                               ) : null}
+                              {t.status !== 'ignored' && t.status !== 'confirmed' && (
+                                <IconButton title="Auf mehrere Positionen aufteilen" className={splitId === t.id ? 'text-accent' : ''} onClick={() => setSplitId(splitId === t.id ? null : t.id)}>{Icon.split}</IconButton>
+                              )}
                               <IconButton title={t.status === 'ignored' ? 'Nicht mehr ignorieren' : 'Ignorieren (keine Ausgabe)'} onClick={() => setIgnored([t], t.status !== 'ignored')}>{Icon.eyeOff}</IconButton>
                               {linked && <IconButton title="Verknüpfung lösen" onClick={() => unlink(t)}>{Icon.link}</IconButton>}
-                              {t.source !== 'csv' && <IconButton title="Löschen" className="hover:text-bad" onClick={() => guard([t]) && confirm('Buchung löschen?') && tx.removeTx(t.id)}>{Icon.trash}</IconButton>}
+                              <IconButton title="Löschen" className="hover:text-bad" onClick={() => removeMany([t])}>{Icon.trash}</IconButton>
                             </div>
                           </td>
                         </tr>
+                        {splitId === t.id && (
+                          <tr className="border-b border-line bg-surface-2/60">
+                            <td colSpan={8} className="px-4 py-3">
+                              <SplitEditor data={data} t={t} onSave={(splits) => saveSplit(t, splits)} onCancel={() => setSplitId(null)} />
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -522,6 +565,49 @@ function BottomBar({ children, onClose }) {
       <div className="pointer-events-auto flex max-w-[960px] flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-3 text-[13px] shadow-[0_8px_30px_rgba(0,0,0,0.18)]">
         {children}
         {onClose && <IconButton title="Schliessen" onClick={onClose}>×</IconButton>}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Buchung auf mehrere Positionen aufteilen. Beträge werden positiv eingegeben (Anteil der Buchung);
+ * die Summe muss dem Buchungsbetrag entsprechen. Der Rest kann mit einem Klick in eine Zeile übernommen werden.
+ */
+function SplitEditor({ data, t, onSave, onCancel }) {
+  const sign = t.amount < 0 ? -1 : 1
+  const total = Math.abs(t.amount)
+  const initial = t.splits?.length
+    ? t.splits.map((x) => ({ positionId: x.positionId, amount: Math.abs(x.amount) }))
+    : [{ positionId: t.positionId, amount: total }, { positionId: null, amount: 0 }]
+  const [rows, setRows] = useState(initial)
+  const sum = Math.round(rows.reduce((a, r) => a + (Number(r.amount) || 0), 0) * 100) / 100
+  const rest = Math.round((total - sum) * 100) / 100
+  const valid = rows.length >= 2 && Math.abs(rest) < 0.005 && rows.every((r) => r.positionId && r.amount > 0)
+  const set = (i, k, v) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)))
+  return (
+    <div className="text-[13px]">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-medium">«{t.text}» aufteilen – total {fmtCHF(total)}</span>
+        <span className={Math.abs(rest) < 0.005 ? 'text-good' : 'text-warn'}>{Math.abs(rest) < 0.005 ? '✓ vollständig verteilt' : `noch ${fmtCHF(rest)} zu verteilen`}</span>
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} className="mb-1.5 flex items-center gap-2">
+          <div className="w-72 rounded-md border border-line bg-surface"><PositionSelect data={data} value={r.positionId} onChange={(v) => set(i, 'positionId', v)} /></div>
+          <div className="w-32 rounded-md border border-line bg-surface"><AmountInput value={r.amount} onChange={(v) => set(i, 'amount', Math.abs(v))} /></div>
+          {Math.abs(rest) >= 0.005 && (
+            <button className="rounded px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft" onClick={() => set(i, 'amount', Math.round(((Number(r.amount) || 0) + rest) * 100) / 100)}>Rest hierher</button>
+          )}
+          {rows.length > 2 && <IconButton title="Zeile entfernen" className="hover:text-bad" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>{Icon.trash}</IconButton>}
+        </div>
+      ))}
+      <div className="mt-2 flex items-center gap-2">
+        <Button variant="ghost" className="-ml-3" onClick={() => setRows((rs) => [...rs, { positionId: null, amount: Math.max(0, rest) }])}>{Icon.plus} Zeile</Button>
+        <div className="ml-auto flex gap-2">
+          {t.splits?.length > 0 && <Button variant="ghost" onClick={() => onSave(null)}>Aufteilung entfernen</Button>}
+          <Button variant="ghost" onClick={onCancel}>Abbrechen</Button>
+          <Button variant="primary" disabled={!valid} onClick={() => onSave(rows.map((r) => ({ positionId: r.positionId, amount: Math.round(sign * r.amount * 100) / 100 })))}>Aufteilung speichern</Button>
+        </div>
       </div>
     </div>
   )

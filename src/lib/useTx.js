@@ -76,6 +76,7 @@ export function useTxStore() {
   )
   const balances = useMemo(() => Object.values(years).flatMap((y) => y.balances), [years])
   const closedMonths = useMemo(() => Object.values(years).flatMap((y) => y.closedMonths || []), [years])
+  const deletedIds = useMemo(() => new Set(Object.values(years).flatMap((y) => y.deletedIds || [])), [years])
 
   // ── Operationen ───────────────────────────────────────────────
   const findYear = (draft, id) => Object.keys(draft).find((y) => draft[y].transactions.some((t) => t.id === id))
@@ -97,10 +98,21 @@ export function useTxStore() {
             d[y].transactions.push(t)
           }
         }),
-      removeTx: (id) =>
+      /**
+       * Buchungen löschen. Aus einem CSV-Import stammende werden gemerkt (deletedIds),
+       * damit sie beim erneuten Import derselben Datei nicht zurückkommen.
+       */
+      removeTx: (ids) =>
         updateYears((d) => {
-          const y = findYear(d, id)
-          if (y) d[y].transactions = d[y].transactions.filter((t) => t.id !== id)
+          const set = new Set([].concat(ids))
+          for (const y of Object.keys(d)) {
+            const gone = d[y].transactions.filter((t) => set.has(t.id))
+            if (!gone.length) continue
+            d[y].deletedIds = [...new Set([...(d[y].deletedIds || []), ...gone.filter((t) => t.source === 'csv').map((t) => t.id)])]
+            d[y].transactions = d[y].transactions.filter((t) => !set.has(t.id))
+          }
+          // Verknüpfungen zu gelöschten Buchungen lösen
+          for (const y of Object.keys(d)) for (const t of d[y].transactions) if (t.linkedId && set.has(t.linkedId)) delete t.linkedId
         }),
       addBalance: (b) =>
         updateYears((d) => {
@@ -128,5 +140,5 @@ export function useTxStore() {
     [updateYears],
   )
 
-  return { years, knownYears, transactions, balances, closedMonths, ensureYears, saveState, ...ops }
+  return { years, knownYears, transactions, balances, closedMonths, deletedIds, ensureYears, saveState, ...ops }
 }

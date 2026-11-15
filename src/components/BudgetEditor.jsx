@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Card, Button, IconButton, AmountInput, TextInput, Money, Icon } from './ui.jsx'
-import { uid, isPeriodic, itemMonthly, itemMonthlyFlat, flatRate, simulateAnnual, makePeriodic, makeMonthly, amountAt, setAmountAt, changedIn, monthLabel, addMonths } from '../lib/calc.js'
+import { isBudgetMode, uid, isPeriodic, itemMonthly, itemMonthlyFlat, flatRate, simulateAnnual, makePeriodic, makeMonthly, amountAt, setAmountAt, changedIn, monthLabel, addMonths } from '../lib/calc.js'
 
 /** Betragsfeld für monatsabhängige Werte. Ein Punkt zeigt an, dass der Betrag in diesem Monat geändert wurde. */
 function MonthAmount({ item, month, onUpdate, className = '' }) {
@@ -104,7 +104,10 @@ function ItemTable({ items, onUpdate, month, actual = {}, hasTx, addLabel = 'Pos
                 <IconButton title="Löschen" className="hover:text-bad" onClick={() => onUpdate((list) => { list.splice(idx, 1) })}>{Icon.trash}</IconButton>
               </div>
             </div>
-            {periodic && (
+            {periodic && isBudgetMode(it) && (
+              <div className="pb-1.5 pl-2 text-[12px] text-ink-3">Jahresbudget (laufende Ausgaben) – Stand und Ausgaben unter Rücklagen</div>
+            )}
+            {periodic && !isBudgetMode(it) && (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-1.5 pl-2 text-[12px] text-ink-3">
                 <span className="flex items-center gap-1">
                   fällig am

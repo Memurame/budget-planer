@@ -33,9 +33,27 @@ export function nextDueMonth(item, fromKey) {
  * dann die Rate gelegt:  rate = (Betrag − angespart) / Monate bis zur nächsten Fälligkeit.
  * Der Fälligkeitsmonat selbst zählt also nicht mehr zum Ansparen für diese Zahlung.
  */
+/** Laufendes Jahresbudget statt Zahlung an einem Fälligkeitsdatum? */
+export const isBudgetMode = (item) => item.mode === 'budget'
+
 export function simulateAnnual(item, fromKey, count) {
   const amount = Number(item.amount) || 0
   const interval = Math.max(1, Number(item.intervalMonths) || 12)
+
+  // Jahresbudget: gleichmässig ansparen, keine geplante Zahlung – Ausgaben kommen aus den Buchungen.
+  // Der Rest bleibt in der Rücklage (wird ins nächste Jahr übertragen).
+  if (isBudgetMode(item)) {
+    const rate = amount / interval
+    const start = item.savedAsOf || fromKey
+    const out = []
+    for (let i = 0; i < count; i++) {
+      const m = addMonths(fromKey, i)
+      const known = diffMonths(start, m) >= 0
+      const saved = known ? (Number(item.saved) || 0) + rate * (diffMonths(start, m) + 1) : null
+      out.push({ month: m, rate, payout: 0, saved, due: null, left: null, estimated: !known, budget: true })
+    }
+    return out
+  }
   const start = item.savedAsOf || fromKey
   let saved = Number(item.saved) || 0
   let due = nextDueMonth(item, start)
@@ -73,6 +91,7 @@ export function annualState(item, key) {
 
 /** Betrag, der bei gleichmässigem Ansparen zu Beginn von `key` bereits zurückgelegt wäre. */
 export function onTrackSaved(item, key) {
+  if (isBudgetMode(item)) return Number(item.saved) || 0 // Jahresbudget: kein Soll-Stand
   const interval = Math.max(1, Number(item.intervalMonths) || 12)
   const due = nextDueMonth(item, key)
   const left = diffMonths(key, due)

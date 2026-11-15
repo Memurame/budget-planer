@@ -105,7 +105,10 @@ Budget/
   und müssen bewusst erstellt oder verworfen werden – einzeln oder alle auf einmal. Das Muster ist vorher anpassbar.
 - **Manuelle Zuordnungen haben immer Vorrang** und werden von Regeln oder erneutem Import nie überschrieben.
 - Nicht erkannte Buchungen landen in **„Nicht zugeordnet“**.
-- Aufteilen einer Buchung auf mehrere Positionen (Split) ist eine mögliche spätere Erweiterung.
+- **Aufteilen (Split)**: Eine Buchung kann auf mehrere Positionen verteilt werden (z. B. ein Einkauf für
+  mehrere Zwecke). Die Summe der Teile muss dem Buchungsbetrag entsprechen.
+- **Löschen**: einzeln oder mehrere ausgewählte. Gelöschte Buchungen aus einem CSV-Import werden gemerkt
+  (`deletedIds` in der Jahresdatei) und beim erneuten Import derselben Datei übersprungen.
 
 ### Ausgleichsbuchungen
 
@@ -131,6 +134,16 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
   - Mehrfachauswahl per Checkbox → „Bestätigen“
   - „Alle sichtbaren bestätigen“ in Kombination mit Filtern (Monat, Konto, Position, Status, Text)
 - Fortschritt pro Monat, z. B. *„48 von 55 bestätigt · 3 offen · 4 automatisch“*.
+
+## 6a. Arten von Rücklagen
+
+| | Fällige Zahlung | Jahresbudget |
+|---|---|---|
+| Beispiel | Versicherung, fällig am 1.3. | Service, Geschenke – laufende Ausgaben ohne festen Termin |
+| Monatliche Rate | (Betrag − angespart) ÷ Monate bis zur Fälligkeit | gleichmässig Betrag ÷ 12 |
+| Ausgaben | eine geplante Zahlung am Fälligkeitsdatum | beliebig viele Buchungen übers Jahr |
+| Anzeige | Fortschritt bis zur Fälligkeit | Ausgaben im Kalenderjahr vs. Jahresbudget, aktueller Stand der Rücklage |
+| Rest | – | wird ins nächste Jahr übertragen |
 
 ## 7. Saldo-Abgleich und Korrekturen
 

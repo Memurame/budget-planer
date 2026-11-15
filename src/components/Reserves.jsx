@@ -3,7 +3,7 @@ import { Bar } from 'react-chartjs-2'
 import { Card, Button, IconButton, AmountInput, TextInput, Stat, Progress, Badge, Icon } from './ui.jsx'
 import { fmtCHF, fmtCHF0, fmtDate } from '../lib/format.js'
 import { actualByPositionRange } from '../lib/tx.js'
-import { diffMonths, nextDueMonth } from '../lib/calc.js'
+import { diffMonths, isBudgetMode, nextDueMonth } from '../lib/calc.js'
 import { addMonths, annualForecast, flatRate, makeMonthly, monthLabel, onTrackSaved, removeRef, reserveItems, resolveRef, simulateAnnual, uid } from '../lib/calc.js'
 import { baseOptions, barStyle, readColors } from '../lib/charts.js'
 
@@ -24,16 +24,30 @@ export default function Reserves({ data, update, month, theme, tx }) {
       reserveItems(data).map(({ item, group, ref }) => {
         const r = simulateAnnual(item, month, 1)[0]
         const flat = flatRate(item)
-        const startSaved = r.estimated ? null : r.saved - r.rate + r.payout
-        return { item, group, ref, r, flat, startSaved, elevated: r.rate > flat * 1.25 + 0.01 }
+        const planned = r.estimated ? null : r.saved - r.rate + r.payout
+        if (!isBudgetMode(item)) return { item, group, ref, r, flat, startSaved: planned, elevated: r.rate > flat * 1.25 + 0.01 }
+        // Jahresbudget: tatsächlicher Stand = angespart − Ausgaben seit Planungsbeginn
+        const sum = (a, b) => (diffMonths(a, b) < 0 ? 0 : actualByPositionRange(tx.transactions, a, b)[item.id] || 0)
+        const since = item.savedAsOf || month
+        const spentBefore = sum(since, addMonths(month, -1))
+        const spentNow = sum(month, month)
+        const year = month.slice(0, 4)
+        const spentYear = sum(`${year}-01`, `${year}-12`)
+        const yearBudget = ((Number(item.amount) || 0) * 12) / Math.max(1, Number(item.intervalMonths) || 12)
+        return {
+          item, group, ref, r, flat, elevated: false, budget: true,
+          startSaved: planned === null ? null : planned - spentBefore,
+          balance: planned === null ? null : r.saved - spentBefore - spentNow,
+          spentYear, yearBudget, year,
+        }
       }),
-    [data, month],
+    [data, month, tx.transactions],
   )
   const forecast = useMemo(() => annualForecast(data, month, 12), [data, month])
 
   const total = rows.reduce((s, x) => s + x.r.rate, 0)
   const totalFlat = rows.reduce((s, x) => s + x.flat, 0)
-  const totalSaved = rows.reduce((s, x) => s + (x.startSaved || 0), 0)
+  const totalSaved = rows.reduce((s, x) => s + (x.startSaved || 0), 0) // Jahresbudget: tatsächlicher Stand
   const totalAmount = rows.reduce((s, x) => s + x.flat * 12, 0) // pro Jahr
   const nextPayout = forecast.find((f) => f.payout > 0)
 
@@ -67,7 +81,7 @@ export default function Reserves({ data, update, month, theme, tx }) {
 
       <Card
         title="Alle Positionen mit Rücklage"
-        subtitle="Jährliche Kosten und periodisch abgerechnete Positionen aus den Gruppen. Rate = (Betrag − angespart) ÷ Monate bis zur Fälligkeit."
+        subtitle="Fällige Zahlung: Rate = (Betrag − angespart) ÷ Monate bis zur Fälligkeit. Jahresbudget: gleichmässig Betrag ÷ 12, Ausgaben laufend aus den Buchungen, der Rest wird übertragen."
         actions={
           <>
             <Button onClick={allOnTrack} title="Angespart-Werte auf gleichmässigen Verlauf setzen">{Icon.target} Alle auf Soll-Stand</Button>
@@ -83,7 +97,7 @@ export default function Reserves({ data, update, month, theme, tx }) {
                 <th className="px-2 pb-2 font-medium">Name</th>
                 <th className="px-2 pb-2 text-right font-medium">Betrag</th>
                 <th className="px-2 pb-2 font-medium">Intervall</th>
-                <th className="px-2 pb-2 font-medium">Fällig am</th>
+                <th className="px-2 pb-2 font-medium">Art / Fällig am</th>
                 <th className="px-2 pb-2 text-right font-medium" title="Stand am Anfang des gewählten Monats">Angespart</th>
                 <th className="px-2 pb-2 text-right font-medium">Rate / Monat</th>
                 <th className="w-32 px-2 pb-2 font-medium">Fortschritt</th>
@@ -91,12 +105,12 @@ export default function Reserves({ data, update, month, theme, tx }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ item, group, ref, r, flat, startSaved, elevated }, idx) => (
+              {rows.map(({ item, group, ref, r, flat, startSaved, elevated, budget, balance, spentYear, yearBudget, year }, idx) => (
                 <tr key={item.id} className="group border-b border-line last:border-b-0">
                   <td className="min-w-48 py-1 pr-2">
                     <TextInput value={item.name} onChange={(v) => set(idx, (a) => { a.name = v })} />
                     {group && <div className="px-2 text-[11px] text-ink-3">aus Gruppe «{group}»</div>}
-                    <PaidHint item={item} paid={paidMap[item.id] || 0} startSaved={startSaved} month={month} onSet={(fn) => set(idx, fn)} />
+                    {!budget && <PaidHint item={item} paid={paidMap[item.id] || 0} startSaved={startSaved} month={month} onSet={(fn) => set(idx, fn)} />}
                   </td>
                   <td className="w-28 py-1">
                     <AmountInput value={item.amount} onChange={(v) => set(idx, (a) => { a.amount = v })} />
@@ -111,7 +125,15 @@ export default function Reserves({ data, update, month, theme, tx }) {
                     </select>
                   </td>
                   <td className="w-40 py-1 px-1">
-                    <div className="flex items-center gap-1.5">
+                    <select
+                      value={item.mode || 'due'}
+                      onChange={(e) => set(idx, (a) => { if (e.target.value === 'budget') { a.mode = 'budget'; delete a.placeholder } else delete a.mode })}
+                      className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12px] text-ink-2 outline-none hover:border-line focus:border-accent"
+                    >
+                      <option value="due">Fällige Zahlung</option>
+                      <option value="budget">Jahresbudget (laufend)</option>
+                    </select>
+                    {!budget && <div className="flex items-center gap-1.5">
                       <input
                         type="date"
                         value={item.dueDate}
@@ -119,7 +141,7 @@ export default function Reserves({ data, update, month, theme, tx }) {
                         className="num w-[124px] rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent"
                       />
                       {item.placeholder && <span className="text-warn" title="Platzhalter – bitte echtes Datum eintragen">{Icon.warn}</span>}
-                    </div>
+                    </div>}
                   </td>
                   <td className="w-28 py-1">
                     {startSaved === null ? (
@@ -133,7 +155,13 @@ export default function Reserves({ data, update, month, theme, tx }) {
                     {Math.abs(r.rate - flat) > 0.01 && <div className="num text-[11px] text-ink-3">normal {fmtCHF(flat)}</div>}
                   </td>
                   <td className="px-2 py-1">
-                    {r.payout > 0 ? (
+                    {budget ? (
+                      <div title={`Ausgaben ${year}: ${fmtCHF(spentYear)} von ${fmtCHF(yearBudget)}`}>
+                        <Progress value={yearBudget ? spentYear / yearBudget : 0} tone={spentYear > yearBudget ? 'warn' : 'accent'} />
+                        <div className="mt-1 whitespace-nowrap text-[11px] text-ink-3">{year}: {fmtCHF0(spentYear)} von {fmtCHF0(yearBudget)}</div>
+                        {balance !== null && <div className={`whitespace-nowrap text-[11px] ${balance < 0 ? 'text-bad' : 'text-ink-2'}`}>Rücklage: {fmtCHF(balance)}</div>}
+                      </div>
+                    ) : r.payout > 0 ? (
                       <Badge tone="accent">Fällig: {fmtCHF0(r.payout)} wird bezahlt</Badge>
                     ) : (
                       <>
@@ -230,7 +258,9 @@ function PaidHint({ item, paid, startSaved, month, onSet }) {
   const interval = Math.max(1, Number(item.intervalMonths) || 12)
   const next = nextDueMonth(item, month)
   const lastDue = next === month ? month : addMonths(next, -interval)
-  const dueInWindow = diffMonths(addMonths(month, -11), lastDue) >= 0 && diffMonths(lastDue, month) >= 0
+  // Nur wenn die geplante Zahlung im Zeitraum liegt UND nach Planungsbeginn (sonst ist sie im angesparten Stand nicht verrechnet)
+  const dueInWindow =
+    diffMonths(addMonths(month, -11), lastDue) >= 0 && diffMonths(lastDue, month) >= 0 && (!item.savedAsOf || diffMonths(item.savedAsOf, lastDue) >= 0)
   // Vorschlag: die geplante Zahlung (Betrag) durch die effektive ersetzen.
   // Nur sinnvoll, wenn die Fälligkeit im Zeitraum liegt – sonst wurde vor der Fälligkeit bezahlt.
   const suggested = startSaved === null || !dueInWindow ? null : Math.round((startSaved + amount - paid) * 100) / 100
@@ -253,7 +283,10 @@ function PaidHint({ item, paid, startSaved, month, onSet }) {
               Rest {fmtCHF(next === month ? suggested - amount : suggested)} als angespart übernehmen
             </button>
           )}
-          {!dueInWindow && <span className="text-ink-3">· vor der Fälligkeit bezahlt – Fälligkeitsdatum prüfen</span>}
+          {!dueInWindow && <span className="text-ink-3">· nicht am Fälligkeitsdatum bezahlt</span>}
+          <button className="rounded px-1.5 py-0.5 text-accent hover:bg-accent-soft" onClick={() => onSet((a) => { a.mode = 'budget'; delete a.placeholder })} title="Kein fester Termin – laufende Ausgaben übers Jahr">
+            Als Jahresbudget führen
+          </button>
         </div>
       )}
     </div>
