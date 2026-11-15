@@ -407,7 +407,7 @@ export default function Transactions({ data, update, month, tx }) {
                       <th className="px-2 font-medium">Text</th>
                       <th className="w-36 px-2 font-medium">Konto</th>
                       <th className="w-56 px-2 font-medium">Position</th>
-                      <th className="w-28 px-2 text-right font-medium">Betrag</th>
+                      <th className="w-32 whitespace-nowrap px-2 text-right font-medium">Betrag</th>
                       <th className="w-28 px-2 font-medium">Status</th>
                       <th className="w-24 pr-4" />
                     </tr>
@@ -444,7 +444,7 @@ export default function Transactions({ data, update, month, tx }) {
                               <PositionSelect data={data} value={t.positionId} onChange={(v) => assign(t, v)} allowIgnore disabled={t.status === 'confirmed'} />
                             )}
                           </td>
-                          <td className={`num px-2 text-right font-medium ${t.amount > 0 ? 'text-good' : ''}`}>{fmtCHF(t.amount)}</td>
+                          <td className={`num whitespace-nowrap px-2 text-right font-medium ${t.amount > 0 ? 'text-good' : ''}`}>{fmtCHF(t.amount)}</td>
                           <td className="px-2">
                             <Badge tone={STATUS[t.status]?.tone}>{t.status === 'confirmed' && Icon.check}{STATUS[t.status]?.label}</Badge>
                           </td>
