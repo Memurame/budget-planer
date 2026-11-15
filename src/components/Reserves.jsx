@@ -6,6 +6,7 @@ import { actualByPositionRange } from '../lib/tx.js'
 import { budgetPeriodStart, diffMonths, isBudgetMode, nextDueMonth } from '../lib/calc.js'
 import { addMonths, annualForecast, flatRate, makeMonthly, monthLabel, onTrackSaved, removeRef, reserveItems, resolveRef, simulateAnnual, uid } from '../lib/calc.js'
 import { baseOptions, barStyle, readColors } from '../lib/charts.js'
+import { confirmAndDelete } from '../lib/deletion.js'
 
 const INTERVALS = [
   [1, 'monatlich'],
@@ -187,7 +188,16 @@ export default function Reserves({ data, update, month, theme, tx }) {
                   <td className="py-1 text-right">
                     <div className="flex justify-end opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
                       <IconButton title="Auf Soll-Stand setzen" onClick={() => set(idx, (a) => { a.saved = onTrackSaved(a, month); a.savedAsOf = month })}>{Icon.target}</IconButton>
-                      <IconButton title="Löschen" className="hover:text-bad" onClick={() => confirm(group ? `«${item.name}» aus der Gruppe «${group}» löschen?` : `«${item.name}» löschen?`) && update((d) => removeRef(d, ref))}>{Icon.trash}</IconButton>
+                      <IconButton title="Löschen" className="hover:text-bad" onClick={() =>
+                        confirmAndDelete({
+                          title: `«${item.name}» löschen?`,
+                          message: group ? `Die Position wird aus der Gruppe «${group}» entfernt – in allen Monaten.` : 'Die Rücklage wird entfernt – in allen Monaten.',
+                          ids: [item.id],
+                          update,
+                          tx,
+                          mutate: (d) => removeRef(d, ref),
+                        })
+                      }>{Icon.trash}</IconButton>
                     </div>
                   </td>
                 </tr>

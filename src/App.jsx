@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadData, saveData } from './lib/storage.js'
 import { createSeed } from './lib/seed.js'
 import { addMonths, monthKey, monthLabel, summary } from './lib/calc.js'
-import { Icon } from './components/ui.jsx'
+import { Icon, DeleteDialogHost } from './components/ui.jsx'
 import Overview from './components/Overview.jsx'
 import BudgetEditor from './components/BudgetEditor.jsx'
 import Reserves from './components/Reserves.jsx'
@@ -96,6 +96,7 @@ export default function App() {
 
   return (
     <div className="flex h-full">
+      <DeleteDialogHost />
       <aside className="flex w-56 shrink-0 flex-col border-r border-line bg-surface px-3 py-5">
         <div className="mb-6 flex items-center gap-2.5 px-2">
           <img src="./icon.svg" alt="" className="size-8" />

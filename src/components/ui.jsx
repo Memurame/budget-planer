@@ -24,6 +24,7 @@ export function Button({ children, variant = 'default', className = '', ...props
     primary: 'bg-accent text-white hover:brightness-110 border border-transparent',
     ghost: 'text-ink-2 hover:bg-surface-2 border border-transparent',
     danger: 'border border-line text-bad hover:bg-surface-2',
+    destructive: 'border border-transparent bg-bad text-white hover:brightness-110',
   }
   return (
     <button
@@ -154,4 +155,51 @@ export const Icon = {
   calendar: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><rect x="3" y="4" width="14" height="13" rx="2" /><path d="M3 8h14M7 2.5v3M13 2.5v3" /></svg>,
   chart: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 17h14M6 14V9M10 14V5M14 14v-3" /></svg>,
   gear: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="10" cy="10" r="2.5" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" strokeLinecap="round" /></svg>,
+}
+
+// ── Lösch-Bestätigung: das Wort «löschen» muss eingetippt werden ─────────────
+let openDeleteDialog = null
+
+/** Öffnet den Lösch-Dialog. Liefert true, wenn der Benutzer «löschen» eingetippt und bestätigt hat. */
+export function askDelete({ title, message }) {
+  return new Promise((resolve) => {
+    if (!openDeleteDialog) return resolve(false)
+    openDeleteDialog({ title, message, resolve })
+  })
+}
+
+/** Einmal in der App einbinden. */
+export function DeleteDialogHost() {
+  const [req, setReq] = useState(null)
+  const [text, setText] = useState('')
+  useEffect(() => {
+    openDeleteDialog = (r) => { setText(''); setReq(r) }
+    return () => { openDeleteDialog = null }
+  }, [])
+  if (!req) return null
+  const ok = text.trim().toLowerCase() === 'löschen'
+  const close = (result) => { req.resolve(result); setReq(null) }
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && close(false)}>
+      <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-5 shadow-[0_20px_60px_rgba(0,0,0,0.3)]" role="dialog" aria-modal="true">
+        <h2 className="text-[16px] font-semibold">{req.title}</h2>
+        <p className="mt-2 whitespace-pre-line text-[14px] text-ink-2">{req.message}</p>
+        <label className="mt-4 block text-[13px] text-ink-2">
+          Zum Bestätigen <b className="text-ink">löschen</b> eintippen:
+          <input
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && ok) close(true); if (e.key === 'Escape') close(false) }}
+            className="mt-1.5 w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] outline-none focus:border-bad"
+            placeholder="löschen"
+          />
+        </label>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => close(false)}>Abbrechen</Button>
+          <Button variant="destructive" disabled={!ok} onClick={() => close(true)}>Endgültig löschen</Button>
+        </div>
+      </div>
+    </div>
+  )
 }

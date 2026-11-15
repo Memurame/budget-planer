@@ -15,7 +15,10 @@ export function useTxStore() {
   const dirty = useRef(new Set())
 
   useEffect(() => { yearsRef.current = years }, [years])
+  const knownYearsRef = useRef([])
+  const ensureYearsRef = useRef(null)
   useEffect(() => { listTxYears().then(setKnownYears).catch(() => {}) }, [])
+  useEffect(() => { knownYearsRef.current = knownYears }, [knownYears])
 
   /** Stellt sicher, dass die Jahre geladen sind (fehlende Dateien → leeres Jahr). */
   const ensureYears = useCallback(async (list) => {
@@ -36,6 +39,8 @@ export function useTxStore() {
       }),
     )
   }, [])
+
+  ensureYearsRef.current = ensureYears
 
   /** Änderung an den geladenen Jahren. `fn(draft)` bekommt { [jahr]: {...} }. */
   const updateYears = useCallback((fn) => {
@@ -134,6 +139,21 @@ export function useTxStore() {
           closed ? set.add(key) : set.delete(key)
           d[y].closedMonths = [...set].sort()
         }),
+      /** Zuordnungen zu gelöschten Positionen entfernen (alle Jahre) → Buchungen wieder «offen». */
+      unassignPositions: async (ids) => {
+        const set = new Set(ids)
+        await ensureYearsRef.current(knownYearsRef.current)
+        updateYears((d) => {
+          for (const y of Object.keys(d)) for (const t of d[y].transactions) {
+            const hit = set.has(t.positionId) || (t.splits || []).some((x) => set.has(x.positionId))
+            if (!hit) continue
+            t.positionId = null
+            delete t.splits
+            t.ruleId = null
+            if (t.status !== 'ignored') t.status = 'open'
+          }
+        })
+      },
       /** Freie Änderung über alle geladenen Jahre (z. B. Regeln neu anwenden). */
       updateYears,
     }),

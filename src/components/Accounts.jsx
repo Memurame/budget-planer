@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Card, Button, IconButton, Badge, Icon, AmountInput, TextInput } from './ui.jsx'
+import { Card, Button, IconButton, Badge, Icon, AmountInput, TextInput, askDelete } from './ui.jsx'
 import PositionSelect from './PositionSelect.jsx'
 import { fmtCHF, fmtDate } from '../lib/format.js'
 import { addMonths, itemMonthly, monthLabel, uid } from '../lib/calc.js'
@@ -86,9 +86,10 @@ function AccountCard({ account: a, index, data, update, month, tx }) {
         <IconButton
           title="Konto löschen"
           className="hover:text-bad"
-          onClick={() => {
+          onClick={async () => {
             const n = tx.transactions.filter((t) => t.accountId === a.id).length
-            if (confirm(n ? `Konto «${a.name}» löschen? ${n} Buchungen bleiben erhalten, aber ohne Konto.` : `Konto «${a.name}» löschen?`)) update((d) => { d.accounts.splice(index, 1) })
+            const ok = await askDelete({ title: `Konto «${a.name}» löschen?`, message: n ? `${n} Buchungen bleiben erhalten, sind danach aber keinem Konto mehr zugeordnet.` : 'Das Konto wird entfernt.' })
+            if (ok) update((d) => { d.accounts = d.accounts.filter((x) => x.id !== a.id) })
           }}
         >
           {Icon.trash}

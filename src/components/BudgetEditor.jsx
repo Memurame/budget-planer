@@ -19,6 +19,7 @@ function MonthAmount({ item, month, onUpdate, className = '' }) {
   )
 }
 import { fmtCHF } from '../lib/format.js'
+import { confirmAndDelete } from '../lib/deletion.js'
 
 const move = (arr, i, d) => {
   const j = i + d
@@ -57,7 +58,7 @@ export function ActualCell({ actual, planned, periodic, hasTx }) {
 }
 
 /** Tabelle der Gruppen-Positionen. Positionen können monatlich oder periodisch (z. B. jährlich) abgerechnet werden. */
-function ItemTable({ items, onUpdate, month, actual = {}, hasTx, addLabel = 'Position hinzufügen' }) {
+function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLabel = 'Position hinzufügen' }) {
   const total = items.reduce((s, it) => s + itemMonthly(it, month), 0)
   const totalActual = items.reduce((s, it) => s + (actual[it.id] || 0), 0)
   const totalYear = items.reduce((s, it) => s + itemMonthlyFlat(it, month) * 12, 0)
@@ -101,7 +102,7 @@ function ItemTable({ items, onUpdate, month, actual = {}, hasTx, addLabel = 'Pos
               <div className="flex justify-end opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
                 <IconButton title="Nach oben" onClick={() => onUpdate((list) => move(list, idx, -1))}>{Icon.up}</IconButton>
                 <IconButton title="Nach unten" onClick={() => onUpdate((list) => move(list, idx, 1))}>{Icon.down}</IconButton>
-                <IconButton title="Löschen" className="hover:text-bad" onClick={() => onUpdate((list) => { list.splice(idx, 1) })}>{Icon.trash}</IconButton>
+                <IconButton title="Löschen" className="hover:text-bad" onClick={() => onDelete(it)}>{Icon.trash}</IconButton>
               </div>
             </div>
             {periodic && isBudgetMode(it) && (
@@ -177,16 +178,39 @@ export default function BudgetEditor({ data, update, summary: s, month, setView,
                 <IconButton
                   title="Gruppe löschen"
                   className="hover:text-bad"
-                  onClick={() => {
-                    if (g.items.length === 0 || confirm(`Gruppe «${g.name}» mit ${g.items.length} Positionen löschen?`)) update((d) => { d.groups.splice(gi, 1) })
-                  }}
+                  onClick={() =>
+                    confirmAndDelete({
+                      title: `Gruppe «${g.name}» löschen?`,
+                      message: g.items.length ? `Die Gruppe und ihre ${g.items.length} Position${g.items.length > 1 ? 'en' : ''} werden in allen Monaten entfernt.` : 'Die leere Gruppe wird entfernt.',
+                      ids: g.items.map((it) => it.id),
+                      update,
+                      tx,
+                      mutate: (d) => { d.groups = d.groups.filter((x) => x.id !== g.id) },
+                    })
+                  }
                 >
                   {Icon.trash}
                 </IconButton>
               </>
             }
           >
-            <ItemTable items={g.items} month={month} actual={tx.actual} hasTx={hasTx} onUpdate={(fn) => update((d) => fn(d.groups[gi].items))} />
+            <ItemTable
+              items={g.items}
+              month={month}
+              actual={tx.actual}
+              hasTx={hasTx}
+              onUpdate={(fn) => update((d) => fn(d.groups[gi].items))}
+              onDelete={(it) =>
+                confirmAndDelete({
+                  title: `Position «${it.name}» löschen?`,
+                  message: `Die Position wird aus der Gruppe «${g.name}» entfernt – in allen Monaten, auch rückwirkend.`,
+                  ids: [it.id],
+                  update,
+                  tx,
+                  mutate: (d) => { const gr = d.groups.find((x) => x.id === g.id); gr.items = gr.items.filter((x) => x.id !== it.id) },
+                })
+              }
+            />
           </Card>
         ))}
 
@@ -215,13 +239,19 @@ export default function BudgetEditor({ data, update, summary: s, month, setView,
 
       <div className="order-first grid items-start gap-5 lg:grid-cols-3 2xl:order-none 2xl:flex 2xl:flex-col 2xl:items-stretch">
         <Card title="Einnahmen" subtitle="Monatlich">
-          <CompactTable items={data.income} month={month} onUpdate={(fn) => update((d) => fn(d.income))} />
+          <CompactTable
+            items={data.income}
+            month={month}
+            onUpdate={(fn) => update((d) => fn(d.income))}
+            onDelete={(it) => confirmAndDelete({ title: `Einnahme «${it.name}» löschen?`, message: 'Die Einnahme wird in allen Monaten entfernt, auch rückwirkend.', update, tx, mutate: (d) => { d.income = d.income.filter((x) => x.id !== it.id) } })}
+          />
         </Card>
         <Card title="Sparen & Abzüge" subtitle="Nach dem Budget abgezogen · ☑ = zählt zur Sparquote">
           <CompactTable
             month={month}
             items={data.deductions}
             onUpdate={(fn) => update((d) => fn(d.deductions))}
+            onDelete={(it) => confirmAndDelete({ title: `«${it.name}» löschen?`, message: 'Der Abzug wird in allen Monaten entfernt, auch rückwirkend.', ids: [it.id], update, tx, mutate: (d) => { d.deductions = d.deductions.filter((x) => x.id !== it.id) } })}
             extra={(it, idx, onUpdate) => (
               <label className="grid size-7 shrink-0 cursor-pointer place-items-center" title="Zählt zur Sparquote">
                 <input type="checkbox" checked={!!it.isSaving} onChange={(e) => onUpdate((l) => { l[idx].isSaving = e.target.checked })} className="cursor-pointer accent-[var(--accent)]" />
@@ -245,7 +275,7 @@ export default function BudgetEditor({ data, update, summary: s, month, setView,
   )
 }
 
-function CompactTable({ items, onUpdate, extra, month }) {
+function CompactTable({ items, onUpdate, onDelete, extra, month }) {
   const total = items.reduce((s, i) => s + amountAt(i, month), 0)
   return (
     <div>
@@ -254,7 +284,7 @@ function CompactTable({ items, onUpdate, extra, month }) {
           <TextInput value={it.name} onChange={(v) => onUpdate((l) => { l[idx].name = v })} className="w-auto flex-1" />
           {extra?.(it, idx, onUpdate)}
           <MonthAmount item={it} month={month} onUpdate={(fn) => onUpdate((l) => fn(l[idx]))} className="w-28" />
-          <IconButton title="Löschen" className="opacity-0 group-hover:opacity-100 hover:text-bad" onClick={() => onUpdate((l) => { l.splice(idx, 1) })}>{Icon.trash}</IconButton>
+          <IconButton title="Löschen" className="opacity-0 group-hover:opacity-100 hover:text-bad" onClick={() => onDelete(it)}>{Icon.trash}</IconButton>
         </div>
       ))}
       <div className="flex items-center justify-between pt-2">
