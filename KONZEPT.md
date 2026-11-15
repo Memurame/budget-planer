@@ -1,6 +1,6 @@
 # Konzept: Buchungen, Soll/Ist-Vergleich und Kontrolle
 
-> Status: **geplant, noch nicht umgesetzt.**
+> Status: **umgesetzt** (Etappen 1–3).
 > Ziel: Effektive Ausgaben erfassen, Budget-Positionen zuordnen und mit dem Budget vergleichen.
 > Alle Daten bleiben lokal; es gibt keine Bankanbindung.
 

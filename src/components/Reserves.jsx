@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import { Bar } from 'react-chartjs-2'
 import { Card, Button, IconButton, AmountInput, TextInput, Stat, Progress, Badge, Icon } from './ui.jsx'
 import { fmtCHF, fmtCHF0, fmtDate } from '../lib/format.js'
+import { actualByPositionRange } from '../lib/tx.js'
+import { diffMonths, nextDueMonth } from '../lib/calc.js'
 import { addMonths, annualForecast, flatRate, makeMonthly, monthLabel, onTrackSaved, removeRef, reserveItems, resolveRef, simulateAnnual, uid } from '../lib/calc.js'
 import { baseOptions, barStyle, readColors } from '../lib/charts.js'
 
@@ -14,7 +16,9 @@ const INTERVALS = [
   [36, 'alle 3 Jahre'],
 ]
 
-export default function Reserves({ data, update, month, theme }) {
+export default function Reserves({ data, update, month, theme, tx }) {
+  const from = addMonths(month, -11)
+  const paidMap = useMemo(() => actualByPositionRange(tx.transactions, from, month), [tx.transactions, from, month])
   const rows = useMemo(
     () =>
       reserveItems(data).map(({ item, group, ref }) => {
@@ -92,6 +96,7 @@ export default function Reserves({ data, update, month, theme }) {
                   <td className="min-w-48 py-1 pr-2">
                     <TextInput value={item.name} onChange={(v) => set(idx, (a) => { a.name = v })} />
                     {group && <div className="px-2 text-[11px] text-ink-3">aus Gruppe «{group}»</div>}
+                    <PaidHint item={item} paid={paidMap[item.id] || 0} startSaved={startSaved} month={month} onSet={(fn) => set(idx, fn)} />
                   </td>
                   <td className="w-28 py-1">
                     <AmountInput value={item.amount} onChange={(v) => set(idx, (a) => { a.amount = v })} />
@@ -209,6 +214,48 @@ export default function Reserves({ data, update, month, theme }) {
           ))}
         </div>
       </Card>
+    </div>
+  )
+}
+
+/**
+ * Effektiv bezahlt in den letzten 12 Monaten. Bei Abweichung zum geplanten Betrag
+ * werden Korrekturen angeboten – nie automatisch angewendet.
+ */
+function PaidHint({ item, paid, startSaved, month, onSet }) {
+  if (!paid) return null
+  const amount = Number(item.amount) || 0
+  const diff = Math.round((paid - amount) * 100) / 100
+  // Wurde die geplante Zahlung im Zeitraum bereits verrechnet (Fälligkeit vorbei)?
+  const interval = Math.max(1, Number(item.intervalMonths) || 12)
+  const next = nextDueMonth(item, month)
+  const lastDue = next === month ? month : addMonths(next, -interval)
+  const dueInWindow = diffMonths(addMonths(month, -11), lastDue) >= 0 && diffMonths(lastDue, month) >= 0
+  // Vorschlag: die geplante Zahlung (Betrag) durch die effektive ersetzen.
+  // Nur sinnvoll, wenn die Fälligkeit im Zeitraum liegt – sonst wurde vor der Fälligkeit bezahlt.
+  const suggested = startSaved === null || !dueInWindow ? null : Math.round((startSaved + amount - paid) * 100) / 100
+  return (
+    <div className="px-2 pb-1 text-[11px]">
+      <span className="text-ink-3">bezahlt (12 Mt.): </span>
+      <span className="num text-ink-2">{fmtCHF(paid)}</span>
+      {Math.abs(diff) >= 0.5 && (
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-warn">{diff > 0 ? `${fmtCHF(diff)} mehr` : `${fmtCHF(-diff)} weniger`} als geplant</span>
+          <button className="rounded px-1.5 py-0.5 text-accent hover:bg-accent-soft" onClick={() => onSet((a) => { a.amount = Math.round(paid * 100) / 100 })} title="Betrag für die nächsten Zyklen auf den effektiven Betrag setzen">
+            Betrag {fmtCHF0(paid)} übernehmen
+          </button>
+          {suggested !== null && (
+            <button
+              className="rounded px-1.5 py-0.5 text-accent hover:bg-accent-soft"
+              onClick={() => onSet((a) => { a.saved = suggested; a.savedAsOf = month })}
+              title="Geplante Zahlung durch die effektive ersetzen"
+            >
+              Rest {fmtCHF(next === month ? suggested - amount : suggested)} als angespart übernehmen
+            </button>
+          )}
+          {!dueInWindow && <span className="text-ink-3">· vor der Fälligkeit bezahlt – Fälligkeitsdatum prüfen</span>}
+        </div>
+      )}
     </div>
   )
 }

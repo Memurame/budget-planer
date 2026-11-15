@@ -3,8 +3,10 @@ const chf0 = new Intl.NumberFormat('de-CH', { style: 'currency', currency: 'CHF'
 const num = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const pct = new Intl.NumberFormat('de-CH', { style: 'percent', maximumFractionDigits: 1 })
 
-export const fmtCHF = (v) => chf.format(v || 0)
-export const fmtCHF0 = (v) => chf0.format(v || 0)
+// Negative Beträge als "CHF −64.00" statt "CHF-64.00"
+const signed = (f, v) => (v < 0 && Math.abs(v) >= 0.005 ? f.format(-v).replace(/CHF\s/, 'CHF −') : f.format(Math.abs(v) < 0.005 ? 0 : v))
+export const fmtCHF = (v) => signed(chf, v || 0)
+export const fmtCHF0 = (v) => signed(chf0, v || 0)
 export const fmtNum = (v) => num.format(v || 0)
 export const fmtPct = (v) => pct.format(v || 0)
 export const fmtDate = (s) => (s ? new Date(s + 'T00:00:00').toLocaleDateString('de-CH') : '')

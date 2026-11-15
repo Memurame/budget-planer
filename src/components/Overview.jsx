@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Card, Money, Stat, Badge, Icon } from './ui.jsx'
 import { fmtCHF, fmtCHF0, fmtPct } from '../lib/format.js'
-import { amountAt, annualForecast, monthLabel } from '../lib/calc.js'
+import { amountAt, annualForecast, isPeriodic, itemMonthly, monthLabel } from '../lib/calc.js'
 import { buildShares } from '../lib/shares.js'
 
 function Row({ label, value, strong, negative, muted, onClick }) {
@@ -16,7 +16,7 @@ function Row({ label, value, strong, negative, muted, onClick }) {
   )
 }
 
-export default function Overview({ data, summary: s, month, setView }) {
+export default function Overview({ data, summary: s, month, setView, tx }) {
   const shares = useMemo(() => buildShares(s), [s])
   const upcoming = useMemo(() => annualForecast(data, month, 6).filter((m) => m.payout > 0), [data, month])
   const elevated = s.reserves.filter((a) => !a.group && a.rate > a.flat * 1.25 + 0.01)
@@ -74,6 +74,8 @@ export default function Overview({ data, summary: s, month, setView }) {
         </Card>
       </div>
 
+      <BudgetVsActual data={data} month={month} tx={tx} setView={setView} />
+
       <Card title="Verteilung der Einnahmen" subtitle={`Wohin die ${fmtCHF0(s.income)} pro Monat fliessen`}>
         <ShareBar shares={shares} />
       </Card>
@@ -130,5 +132,68 @@ function ShareBar({ shares }) {
         ))}
       </div>
     </div>
+  )
+}
+
+/** Soll/Ist pro Gruppe für den Monat. Periodische Kosten werden separat gezeigt (Zahlung ≠ Monatsrate). */
+function BudgetVsActual({ data, month, tx, setView }) {
+  const p = tx.progress
+  if (!p.total) {
+    return (
+      <Card title={`Soll / Ist ${monthLabel(month)}`} subtitle="Noch keine Buchungen für diesen Monat">
+        <button onClick={() => setView('transactions')} className="text-[14px] text-accent hover:underline">Kontoauszug importieren oder Buchungen erfassen →</button>
+      </Card>
+    )
+  }
+  const a = tx.actual
+  const rows = data.groups.map((g) => {
+    const items = g.items.filter((it) => !isPeriodic(it))
+    return { name: g.name, plan: items.reduce((x, it) => x + itemMonthly(it, month), 0), actual: items.reduce((x, it) => x + (a[it.id] || 0), 0) }
+  })
+  const periodicPaid =
+    data.annual.reduce((x, it) => x + (a[it.id] || 0), 0) +
+    data.groups.flatMap((g) => g.items.filter(isPeriodic)).reduce((x, it) => x + (a[it.id] || 0), 0)
+  const deductions = { name: 'Sparen & Abzüge', plan: data.deductions.reduce((x, d) => x + amountAt(d, month), 0), actual: data.deductions.reduce((x, d) => x + (a[d.id] || 0), 0) }
+  const all = [...rows, ...(deductions.actual ? [deductions] : [])]
+  const max = Math.max(1, ...all.map((r) => Math.max(r.plan, r.actual)))
+  const pct = p.relevant ? p.confirmed / p.relevant : 0
+
+  return (
+    <Card
+      title={`Soll / Ist ${monthLabel(month)}`}
+      subtitle={`${p.confirmed} von ${p.relevant} Buchungen bestätigt${p.open ? ` · ${p.open} noch nicht zugeordnet` : ''}`}
+      actions={<button className="text-[13px] text-accent hover:underline" onClick={() => setView('transactions')}>Buchungen prüfen →</button>}
+    >
+      <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-surface-2"><div className="h-full rounded-full bg-good" style={{ width: `${pct * 100}%` }} /></div>
+      <div className="space-y-3">
+        {all.map((r) => {
+          const over = r.actual > r.plan + 0.005
+          return (
+            <div key={r.name} className="grid grid-cols-[160px_minmax(0,1fr)_auto] items-center gap-4 text-[13px]">
+              <span className="truncate">{r.name}</span>
+              <div className="relative h-5">
+                <div className="absolute inset-y-0 left-0 rounded bg-surface-2" style={{ width: `${(r.plan / max) * 100}%` }} title={`Budget ${fmtCHF(r.plan)}`} />
+                <div className={`absolute left-0 top-1 h-3 rounded ${over ? 'bg-bad' : 'bg-accent'}`} style={{ width: `${(r.actual / max) * 100}%` }} title={`Effektiv ${fmtCHF(r.actual)}`} />
+              </div>
+              <span className="num whitespace-nowrap text-right">
+                {fmtCHF(r.actual)} <span className="text-ink-3">/ {fmtCHF(r.plan)}</span>
+                <span className={`ml-2 ${over ? 'text-bad' : 'text-good'}`}>{over ? '+' : '−'} {fmtCHF0(Math.abs(r.plan - r.actual)).replace('CHF ', '')}</span>
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      {periodicPaid > 0 && (
+        <div className="mt-4 flex justify-between border-t border-line pt-3 text-[13px]">
+          <span className="text-ink-2">Bezahlte jährliche / periodische Kosten (aus Rücklagen)</span>
+          <button className="num text-accent hover:underline" onClick={() => setView('reserves')}>{fmtCHF(periodicPaid)}</button>
+        </div>
+      )}
+      <div className="mt-3 flex gap-4 text-[11px] text-ink-3">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-surface-2 ring-1 ring-line" />Budget</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-accent" />Effektiv</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-bad" />über Budget</span>
+      </div>
+    </Card>
   )
 }

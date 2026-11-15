@@ -1,0 +1,132 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { listTxYears, loadTxYear, saveTxYear } from './storage.js'
+import { emptyYear, yearOf } from './tx.js'
+
+/**
+ * Buchungen, Salden und abgeschlossene Monate – eine Datei pro Jahr.
+ * Jahre werden bei Bedarf geladen; gespeichert werden nur geänderte Jahre.
+ */
+export function useTxStore() {
+  const [years, setYears] = useState({})
+  const [knownYears, setKnownYears] = useState([])
+  const [saveState, setSaveState] = useState('idle')
+  const yearsRef = useRef({})
+  const pending = useRef(new Map())
+  const dirty = useRef(new Set())
+
+  useEffect(() => { yearsRef.current = years }, [years])
+  useEffect(() => { listTxYears().then(setKnownYears).catch(() => {}) }, [])
+
+  /** Stellt sicher, dass die Jahre geladen sind (fehlende Dateien → leeres Jahr). */
+  const ensureYears = useCallback(async (list) => {
+    const wanted = [...new Set(list.map(Number))].filter((y) => y && !(y in yearsRef.current))
+    await Promise.all(
+      wanted.map((y) => {
+        if (!pending.current.has(y)) {
+          pending.current.set(
+            y,
+            loadTxYear(y).then((d) => {
+              const value = { ...emptyYear(), ...(d || {}) }
+              yearsRef.current = { ...yearsRef.current, [y]: value }
+              setYears((prev) => (y in prev ? prev : { ...prev, [y]: value }))
+            }),
+          )
+        }
+        return pending.current.get(y)
+      }),
+    )
+  }, [])
+
+  /** Änderung an den geladenen Jahren. `fn(draft)` bekommt { [jahr]: {...} }. */
+  const updateYears = useCallback((fn) => {
+    setYears((prev) => {
+      const draft = structuredClone(prev)
+      fn(draft)
+      for (const y of Object.keys(draft)) {
+        if (JSON.stringify(draft[y]) !== JSON.stringify(prev[y])) dirty.current.add(Number(y))
+      }
+      yearsRef.current = draft
+      return draft
+    })
+  }, [])
+
+  // Automatisch speichern – nur geänderte Jahre
+  useEffect(() => {
+    if (dirty.current.size === 0) return
+    setSaveState('saving')
+    const t = setTimeout(async () => {
+      const list = [...dirty.current]
+      dirty.current.clear()
+      try {
+        for (const y of list) await saveTxYear(y, yearsRef.current[y])
+        setKnownYears((k) => [...new Set([...k, ...list])].sort())
+        setSaveState('saved')
+      } catch (e) {
+        list.forEach((y) => dirty.current.add(y))
+        setSaveState('error')
+        console.error(e)
+      }
+    }, 400)
+    return () => clearTimeout(t)
+  }, [years])
+
+  const transactions = useMemo(
+    () => Object.values(years).flatMap((y) => y.transactions).sort((a, b) => b.date.localeCompare(a.date) || (b.bookedDate || '').localeCompare(a.bookedDate || '')),
+    [years],
+  )
+  const balances = useMemo(() => Object.values(years).flatMap((y) => y.balances), [years])
+  const closedMonths = useMemo(() => Object.values(years).flatMap((y) => y.closedMonths || []), [years])
+
+  // ── Operationen ───────────────────────────────────────────────
+  const findYear = (draft, id) => Object.keys(draft).find((y) => draft[y].transactions.some((t) => t.id === id))
+
+  const ops = useMemo(
+    () => ({
+      /** Buchungen ändern: fn(tx) für jede ID. */
+      updateTx: (ids, fn) =>
+        updateYears((d) => {
+          const set = new Set([].concat(ids))
+          for (const y of Object.keys(d)) for (const t of d[y].transactions) if (set.has(t.id)) fn(t)
+        }),
+      /** Neue Buchungen hinzufügen (Jahre müssen vorher mit ensureYears geladen sein). */
+      addTx: (list) =>
+        updateYears((d) => {
+          for (const t of [].concat(list)) {
+            const y = yearOf(t.date)
+            d[y] = d[y] || emptyYear()
+            d[y].transactions.push(t)
+          }
+        }),
+      removeTx: (id) =>
+        updateYears((d) => {
+          const y = findYear(d, id)
+          if (y) d[y].transactions = d[y].transactions.filter((t) => t.id !== id)
+        }),
+      addBalance: (b) =>
+        updateYears((d) => {
+          const y = yearOf(b.date)
+          d[y] = d[y] || emptyYear()
+          // Ein Saldo pro Konto und Tag – neuer Wert ersetzt den alten
+          d[y].balances = d[y].balances.filter((x) => !(x.accountId === b.accountId && x.date === b.date))
+          d[y].balances.push(b)
+        }),
+      removeBalance: (id) =>
+        updateYears((d) => {
+          for (const y of Object.keys(d)) d[y].balances = d[y].balances.filter((b) => b.id !== id)
+        }),
+      setMonthClosed: (key, closed) =>
+        updateYears((d) => {
+          const y = Number(key.slice(0, 4))
+          d[y] = d[y] || emptyYear()
+          const set = new Set(d[y].closedMonths || [])
+          closed ? set.add(key) : set.delete(key)
+          d[y].closedMonths = [...set].sort()
+        }),
+      /** Freie Änderung über alle geladenen Jahre (z. B. Regeln neu anwenden). */
+      updateYears,
+    }),
+    [updateYears],
+  )
+
+  return { years, knownYears, transactions, balances, closedMonths, ensureYears, saveState, ...ops }
+}

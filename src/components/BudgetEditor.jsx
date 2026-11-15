@@ -34,11 +34,32 @@ export const BILLING = [
   [24, 'alle 2 Jahre'],
 ]
 
-const COLS = 'grid-cols-[minmax(0,1fr)_128px_120px_120px_84px]'
+const COLS = 'grid-cols-[minmax(0,1fr)_120px_112px_112px_128px_84px]'
+
+/** Effektiv ausgegeben (aus Buchungen) im Vergleich zum Monatsbetrag. */
+export function ActualCell({ actual, planned, periodic, hasTx }) {
+  if (!hasTx) return <div className="px-2 text-right text-ink-3">–</div>
+  const v = actual || 0
+  if (periodic) {
+    return <div className="num px-2 text-right text-ink-2" title="Zahlungen in diesem Monat (Rücklage wird separat unter Rücklagen verglichen)">{v ? fmtCHF(v) : '–'}</div>
+  }
+  const ratio = planned > 0 ? v / planned : v > 0 ? 2 : 0
+  const tone = ratio > 1.0001 ? 'bg-bad' : ratio > 0.9 ? 'bg-warn' : 'bg-good'
+  const diff = planned - v
+  return (
+    <div className="px-2" title={diff >= 0 ? `${fmtCHF(diff)} unter Budget` : `${fmtCHF(-diff)} über Budget`}>
+      <div className={`num text-right ${ratio > 1.0001 ? 'text-bad' : ''}`}>{fmtCHF(v)}</div>
+      <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-surface-2">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.min(1, ratio) * 100}%` }} />
+      </div>
+    </div>
+  )
+}
 
 /** Tabelle der Gruppen-Positionen. Positionen können monatlich oder periodisch (z. B. jährlich) abgerechnet werden. */
-function ItemTable({ items, onUpdate, month, addLabel = 'Position hinzufügen' }) {
+function ItemTable({ items, onUpdate, month, actual = {}, hasTx, addLabel = 'Position hinzufügen' }) {
   const total = items.reduce((s, it) => s + itemMonthly(it, month), 0)
+  const totalActual = items.reduce((s, it) => s + (actual[it.id] || 0), 0)
   const totalYear = items.reduce((s, it) => s + itemMonthlyFlat(it, month) * 12, 0)
   return (
     <div>
@@ -47,6 +68,7 @@ function ItemTable({ items, onUpdate, month, addLabel = 'Position hinzufügen' }
         <div className="px-1">Abrechnung</div>
         <div className="px-2 text-right">Betrag</div>
         <div className="px-2 text-right">Pro Monat</div>
+        <div className="px-2 text-right">Effektiv</div>
         <div />
       </div>
       {items.map((it, idx) => {
@@ -75,6 +97,7 @@ function ItemTable({ items, onUpdate, month, addLabel = 'Position hinzufügen' }
               <div className={`num px-2 text-right ${periodic ? (elevated ? 'text-warn' : '') : 'text-ink-3'}`} title={periodic ? `Rücklage diesen Monat (normal ${fmtCHF(flatRate(it))})` : undefined}>
                 {fmtCHF(periodic ? r.rate : amountAt(it, month))}
               </div>
+              <ActualCell actual={actual[it.id]} planned={periodic ? r.rate : amountAt(it, month)} periodic={periodic} hasTx={hasTx} />
               <div className="flex justify-end opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
                 <IconButton title="Nach oben" onClick={() => onUpdate((list) => move(list, idx, -1))}>{Icon.up}</IconButton>
                 <IconButton title="Nach unten" onClick={() => onUpdate((list) => move(list, idx, 1))}>{Icon.down}</IconButton>
@@ -101,20 +124,22 @@ function ItemTable({ items, onUpdate, month, addLabel = 'Position hinzufügen' }
         )
       })}
       <div className={`grid ${COLS} items-center gap-2 pt-2.5 text-[14px] font-semibold`}>
-        <div className="col-span-2 px-2">
+        <div className="col-span-3 flex items-center px-2">
           <Button variant="ghost" className="-ml-3 whitespace-nowrap font-normal" onClick={() => onUpdate((list) => { list.push({ id: uid(), name: "Neue Position", amount: 0 }) })}>
             {Icon.plus} {addLabel}
           </Button>
+          <span className="num ml-auto whitespace-nowrap text-[12px] font-normal text-ink-3">{fmtCHF(totalYear)} / Jahr</span>
         </div>
-        <div className="num whitespace-nowrap px-2 text-right text-[12px] font-normal text-ink-3">{fmtCHF(totalYear)} / Jahr</div>
         <div className="num px-2 text-right">{fmtCHF(total)}</div>
+        <div className={`num px-2 text-right ${hasTx && totalActual > total ? 'text-bad' : ''}`}>{hasTx ? fmtCHF(totalActual) : '–'}</div>
         <div className="text-right text-[11px] font-normal text-ink-3">Summe</div>
       </div>
     </div>
   )
 }
 
-export default function BudgetEditor({ data, update, summary: s, month, setView }) {
+export default function BudgetEditor({ data, update, summary: s, month, setView, tx }) {
+  const hasTx = tx.progress.total > 0
   const [newGroup, setNewGroup] = useState('')
 
   const addGroup = () => {
@@ -158,7 +183,7 @@ export default function BudgetEditor({ data, update, summary: s, month, setView 
               </>
             }
           >
-            <ItemTable items={g.items} month={month} onUpdate={(fn) => update((d) => fn(d.groups[gi].items))} />
+            <ItemTable items={g.items} month={month} actual={tx.actual} hasTx={hasTx} onUpdate={(fn) => update((d) => fn(d.groups[gi].items))} />
           </Card>
         ))}
 

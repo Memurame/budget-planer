@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import { Card, Button, IconButton, Stat, Icon } from './ui.jsx'
 import { fmtCHF, fmtCHF0, fmtPct } from '../lib/format.js'
+import { actualByPosition, counts, monthOf } from '../lib/tx.js'
+import { isPeriodic, itemMonthly } from '../lib/calc.js'
 import { addMonths, amountAt, flatRate, itemMonthlyFlat, monthKey, monthLabel, summary, uid } from '../lib/calc.js'
 import { baseOptions, barStyle, readColors } from '../lib/charts.js'
 
@@ -17,7 +19,7 @@ export function yearlyTotals(d, key = monthKey()) {
   return { income, groups, annual, deductions, savings, budget, result: income - budget - deductions }
 }
 
-export default function Stats({ data, update, replaceData, theme, month }) {
+export default function Stats({ data, update, replaceData, theme, month, tx }) {
   const t = useMemo(() => yearlyTotals(data, month), [data, month])
   const c = readColors()
 
@@ -103,7 +105,9 @@ export default function Stats({ data, update, replaceData, theme, month }) {
         </Card>
       </div>
 
-      <History data={data} month={month} theme={theme} />
+      {tx.progress.total > 0 && <GroupActual data={data} month={month} theme={theme} tx={tx} />}
+
+      <History data={data} month={month} theme={theme} tx={tx} />
 
       <Versions data={data} update={update} replaceData={replaceData} theme={theme} current={t} month={month} />
     </div>
@@ -188,11 +192,13 @@ function Versions({ data, update, replaceData, theme, current, month }) {
 }
 
 /** Verlauf der letzten 12 Monate bis zum gewählten Monat. */
-function History({ data, month, theme }) {
-  const rows = useMemo(
-    () => Array.from({ length: 12 }, (_, i) => addMonths(month, i - 11)).map((m) => ({ m, s: summary(data, m) })),
-    [data, month],
-  )
+function History({ data, month, theme, tx }) {
+  const rows = useMemo(() => {
+    const spent = {}
+    for (const t of tx.transactions) if (counts(t)) spent[monthOf(t.date)] = (spent[monthOf(t.date)] || 0) - t.amount
+    return Array.from({ length: 12 }, (_, i) => addMonths(month, i - 11)).map((m) => ({ m, s: summary(data, m), spent: m in spent ? spent[m] : null }))
+  }, [data, month, tx.transactions])
+  const hasSpent = rows.some((r) => r.spent !== null)
   const c = readColors()
   const opts = baseOptions(theme.resolved, { legend: true })
   opts.interaction = { mode: 'index', intersect: false }
@@ -220,6 +226,35 @@ function History({ data, month, theme }) {
               line('Einnahmen', c.series[0], (s) => s.income),
               line('Budget', c.series[1], (s) => s.budget),
               line('Frei verfügbar', c.series[2], (s) => s.result),
+              ...(hasSpent ? [{ ...line('Effektiv ausgegeben', c.series[3], () => null), data: rows.map((r) => r.spent), borderDash: [6, 4], spanGaps: false, pointRadius: 3 }] : []),
+            ],
+          }}
+        />
+      </div>
+    </Card>
+  )
+}
+
+/** Soll/Ist pro Gruppe im gewählten Monat (ohne periodische Positionen). */
+function GroupActual({ data, month, theme, tx }) {
+  const c = readColors()
+  const a = tx.actual
+  const rows = data.groups.map((g) => {
+    const items = g.items.filter((it) => !isPeriodic(it))
+    return { name: g.name, plan: items.reduce((x, it) => x + itemMonthly(it, month), 0), actual: items.reduce((x, it) => x + (a[it.id] || 0), 0) }
+  })
+  const opts = baseOptions(theme.resolved, { legend: true })
+  return (
+    <Card title={`Soll / Ist nach Gruppe · ${monthLabel(month)}`} subtitle="Monatliche Positionen; jährliche Kosten werden unter Rücklagen verglichen">
+      <div className="h-64">
+        <Bar
+          key={theme.resolved}
+          options={opts}
+          data={{
+            labels: rows.map((r) => r.name),
+            datasets: [
+              { label: 'Budget', data: rows.map((r) => r.plan), backgroundColor: c.series[0], ...barStyle, maxBarThickness: 40, categoryPercentage: 0.5, barPercentage: 0.9 },
+              { label: 'Effektiv', data: rows.map((r) => r.actual), backgroundColor: c.series[1], ...barStyle, maxBarThickness: 40, categoryPercentage: 0.5, barPercentage: 0.9 },
             ],
           }}
         />

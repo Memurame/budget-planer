@@ -24,12 +24,12 @@ function writeAtomic(file, content) {
   fs.renameSync(tmp, file)
 }
 
-// Eine Sicherung pro Tag (die erste Version des Tages bleibt erhalten).
-function backupOncePerDay(file) {
+// Eine Sicherung pro Tag und Datei (die erste Version des Tages bleibt erhalten).
+function backupOncePerDay(file, prefix = path.basename(file, '.json')) {
   if (!fs.existsSync(file)) return
   const day = new Date().toISOString().slice(0, 10)
-  const dir = path.join(path.dirname(file), 'backups')
-  const target = path.join(dir, `${path.basename(file, '.json')}-${day}.json`)
+  const dir = path.join(path.dirname(dataPath()), 'backups')
+  const target = path.join(dir, `${prefix}-${day}.json`)
   if (fs.existsSync(target)) return
   fs.mkdirSync(dir, { recursive: true })
   fs.copyFileSync(file, target)
@@ -50,6 +50,41 @@ ipcMain.handle('budget:save', (_e, data) => {
 
 ipcMain.handle('budget:info', () => ({ dataPath: dataPath() }))
 
+// Buchungen: eine Datei pro Jahr im Unterordner "buchungen"
+const txDir = () => path.join(path.dirname(dataPath()), 'buchungen')
+const txFile = (year) => {
+  if (!/^\d{4}$/.test(String(year))) throw new Error('Ungültiges Jahr')
+  return path.join(txDir(), `${year}.json`)
+}
+
+ipcMain.handle('tx:years', () => {
+  if (!fs.existsSync(txDir())) return []
+  return fs.readdirSync(txDir()).filter((f) => /^\d{4}\.json$/.test(f)).map((f) => Number(f.slice(0, 4))).sort()
+})
+
+ipcMain.handle('tx:load', (_e, year) => {
+  const file = txFile(year)
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null
+})
+
+ipcMain.handle('tx:save', (_e, year, data) => {
+  const file = txFile(year)
+  backupOncePerDay(file, `buchungen-${year}`)
+  writeAtomic(file, JSON.stringify(data, null, 2))
+  return { ok: true }
+})
+
+ipcMain.handle('csv:open', async () => {
+  const res = await dialog.showOpenDialog({
+    title: 'Kontoauszug (CSV) importieren',
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+    properties: ['openFile'],
+  })
+  if (res.canceled || !res.filePaths[0]) return null
+  const file = res.filePaths[0]
+  return { name: path.basename(file), content: fs.readFileSync(file, 'utf8') }
+})
+
 ipcMain.handle('budget:choose-file', async () => {
   const res = await dialog.showSaveDialog({
     title: 'Speicherort der Budget-Datei',
@@ -60,9 +95,12 @@ ipcMain.handle('budget:choose-file', async () => {
   if (res.canceled || !res.filePath) return null
   const next = res.filePath.endsWith('.json') ? res.filePath : `${res.filePath}.json`
   const current = dataPath()
-  // Bestehende Datei übernehmen, falls am neuen Ort noch nichts liegt
+  // Bestehende Daten übernehmen, falls am neuen Ort noch nichts liegt (Budget + Buchungen)
   if (!fs.existsSync(next) && fs.existsSync(current)) {
     writeAtomic(next, fs.readFileSync(current, 'utf8'))
+    const fromTx = path.join(path.dirname(current), 'buchungen')
+    const toTx = path.join(path.dirname(next), 'buchungen')
+    if (fs.existsSync(fromTx) && !fs.existsSync(toTx)) fs.cpSync(fromTx, toTx, { recursive: true })
   }
   writeConfig({ ...readConfig(), dataPath: next })
   return { dataPath: next }

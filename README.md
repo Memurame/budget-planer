@@ -8,7 +8,13 @@ Lokaler Budget-Planer für NixOS (Electron aus nixpkgs). Alle Daten bleiben auf 
   `Rate = (Betrag − angespart) / Monate bis zur Fälligkeit` (der Fälligkeitsmonat zählt nicht mehr dazu),
   nach der Zahlung beginnt der nächste Zyklus mit `Betrag / Intervall`.
   Auch einzelne Positionen in Gruppen (z. B. ein Jahresabo) können jährlich abgerechnet werden.
+- **Buchungen & Soll/Ist**: Kontoauszug (Revolut-CSV) importieren oder Buchungen von Hand erfassen,
+  Positionen zuordnen (automatisch über Regeln, jederzeit manuell anpassbar), kontrollieren und bestätigen
+  (auch gesammelt), Monat abschliessen. Budget, Übersicht, Rücklagen und Statistik zeigen Soll gegenüber Ist.
+- **Konten**: Girokonto, Pockets, externe Konten; Saldo-Abgleich mit Korrekturbuchungen.
 - Statistiken, Verlauf, Versionen zum Vergleichen, CSV-Export, hell/dunkel
+
+Details zum Konzept: [KONZEPT.md](KONZEPT.md)
 
 ## Starten
 
@@ -37,7 +43,8 @@ Danach das Paket `budget` installieren (z. B. in `home.packages`) – es erschei
 ## Daten
 
 - Datei: `~/Documents/Budget/budget.json` bzw. `~/Dokumente/Budget/budget.json` (in der App unter *Einstellungen* änderbar)
-- Tägliche Sicherung im Unterordner `backups/`
+- Buchungen pro Jahr: `buchungen/JJJJ.json` im selben Ordner
+- Tägliche Sicherung pro Datei im Unterordner `backups/`
 - Beim ersten Start wird eine leere Vorlage angelegt; danach ist die Datei der Master.
 
 ## Entwicklung

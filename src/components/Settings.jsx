@@ -26,7 +26,7 @@ export default function Settings({ data, theme, month }) {
 
   return (
     <div className="flex max-w-3xl flex-col gap-5">
-      <Card title="Datei" subtitle="Alle Daten liegen lokal in dieser Datei. Pro Tag wird automatisch eine Sicherung im Unterordner «backups» angelegt.">
+      <Card title="Datei" subtitle="Budget, Konten und Regeln liegen in dieser Datei, Buchungen pro Jahr im Unterordner «buchungen». Pro Tag und Datei wird automatisch eine Sicherung im Unterordner «backups» angelegt.">
         <div className="num rounded-lg bg-surface-2 px-3 py-2 text-[13px] break-all">{info.dataPath}</div>
         <div className="mt-3 flex flex-wrap gap-2">
           {isDesktop && (
