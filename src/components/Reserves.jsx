@@ -169,7 +169,7 @@ export default function Reserves({ data, update, month, theme, tx }) {
                         <>
                           <Progress value={item.amount ? (startSaved ?? 0) / item.amount : 0} tone={elevated ? 'warn' : 'accent'} />
                           <div className="mt-1 flex justify-between gap-1 whitespace-nowrap text-[11px] text-ink-3">
-                            <span>{r.left != null ? `noch ${r.left} Mt.` : ''}</span>
+                            <span>{r.left != null ? (r.left === 1 ? 'letzte Rate' : `noch ${r.left} Mt.`) : ''}</span>
                             {elevated && <span className="text-warn">erhöhte Rate</span>}
                           </div>
                         </>
@@ -196,7 +196,10 @@ export default function Reserves({ data, update, month, theme, tx }) {
               <tfoot>
                 <tr className="border-t border-line font-semibold">
                   <td className="px-2 pt-3">Total</td>
-                  <td className="num px-2 pt-3 text-right">{fmtCHF(t.amount)}</td>
+                  <td className="num px-2 pt-3 text-right">
+                  {fmtCHF(t.amount)}
+                  <div className="text-[11px] font-normal text-ink-3">pro Jahr</div>
+                </td>
                   <td colSpan={2} />
                   <td className="num px-2 pt-3 text-right">{fmtCHF(t.saved)}</td>
                   <td className="num px-2 pt-3 text-right">{fmtCHF(t.rate)}</td>
@@ -231,7 +234,7 @@ export default function Reserves({ data, update, month, theme, tx }) {
         rows.filter((x) => !x.group),
         {
           title: 'Jährliche Kosten',
-          subtitle: 'Fällige Zahlung: Rate = (Betrag − angespart) ÷ Monate bis zur Fälligkeit. Jahresbudget: gleichmässig Betrag ÷ 12, Ausgaben laufend aus den Buchungen; pro Kalenderjahr – Rest übertragen oder jedes Jahr neu.',
+          subtitle: 'Fällige Zahlung: Rate = (Betrag − angespart) ÷ Monate bis zur Fälligkeit (inkl. Fälligkeitsmonat, Zahlung Ende Monat). Jahresbudget: gleichmässig Betrag ÷ 12, Ausgaben laufend aus den Buchungen; pro Kalenderjahr – Rest übertragen oder jedes Jahr neu.',
           actions: (
             <>
               <Button onClick={allOnTrack} title="Angespart-Werte auf gleichmässigen Verlauf setzen">{Icon.target} Alle auf Soll-Stand</Button>

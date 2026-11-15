@@ -29,9 +29,9 @@ export function nextDueMonth(item, fromKey) {
  * Simuliert eine jährliche Position Monat für Monat.
  *
  * Ausgangslage: am Anfang des Monats `savedAsOf` sind `saved` CHF angespart.
- * In jedem Monat wird zuerst eine Fälligkeit bezahlt (falls dieser Monat fällig ist),
- * dann die Rate gelegt:  rate = (Betrag − angespart) / Monate bis zur nächsten Fälligkeit.
- * Der Fälligkeitsmonat selbst zählt also nicht mehr zum Ansparen für diese Zahlung.
+ * In jedem Monat wird zuerst die Rate gelegt:
+ *   rate = (Betrag − angespart) / Monate bis zur Fälligkeit, Fälligkeitsmonat eingeschlossen.
+ * Im Fälligkeitsmonat wird danach (Ende Monat) bezahlt; der nächste Zyklus beginnt im Folgemonat.
  */
 /** Laufendes Jahresbudget statt Zahlung an einem Fälligkeitsdatum? */
 export const isBudgetMode = (item) => item.mode === 'budget'
@@ -77,16 +77,19 @@ export function simulateAnnual(item, fromKey, count) {
   }
 
   for (let m = start; diffMonths(m, end) >= 0; m = addMonths(m, 1)) {
+    // Rate für die anstehende Zahlung – der Fälligkeitsmonat zählt mit
+    const left = diffMonths(m, due) + 1
+    const rate = Math.max(0, amount - saved) / left
+    saved += rate
+    const forDue = due
     let payout = 0
     if (m === due) {
+      // Zahlung Ende Monat, danach beginnt der nächste Zyklus im Folgemonat
       payout = amount
       saved -= amount
       due = addMonths(due, interval)
     }
-    const left = diffMonths(m, due)
-    const rate = Math.max(0, amount - saved) / left
-    saved += rate
-    if (diffMonths(fromKey, m) >= 0) out.push({ month: m, rate, payout, saved, due, left, estimated: false })
+    if (diffMonths(fromKey, m) >= 0) out.push({ month: m, rate, payout, saved, due: forDue, left, estimated: false })
   }
   return out
 }
@@ -105,8 +108,8 @@ export function onTrackSaved(item, key) {
   if (isBudgetMode(item)) return Number(item.saved) || 0 // Jahresbudget: kein Soll-Stand
   const interval = Math.max(1, Number(item.intervalMonths) || 12)
   const due = nextDueMonth(item, key)
-  const left = diffMonths(key, due)
-  if (left === 0) return Number(item.amount) || 0
+  // Monate bis zur Fälligkeit inkl. Fälligkeitsmonat; Soll-Stand zu Beginn von `key`
+  const left = Math.min(interval, diffMonths(key, due) + 1)
   return ((Number(item.amount) || 0) * Math.max(0, interval - left)) / interval
 }
 

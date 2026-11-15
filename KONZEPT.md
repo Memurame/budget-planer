@@ -140,7 +140,7 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
 | | Fällige Zahlung | Jahresbudget |
 |---|---|---|
 | Beispiel | Versicherung, fällig am 1.3. | Service, Geschenke – laufende Ausgaben ohne festen Termin |
-| Monatliche Rate | (Betrag − angespart) ÷ Monate bis zur Fälligkeit | gleichmässig Betrag ÷ 12 |
+| Monatliche Rate | (Betrag − angespart) ÷ Monate bis zur Fälligkeit, inkl. Fälligkeitsmonat (Zahlung Ende Monat); nächster Zyklus ab Folgemonat | gleichmässig Betrag ÷ 12 |
 | Ausgaben | eine geplante Zahlung am Fälligkeitsdatum | beliebig viele Buchungen übers Jahr |
 | Anzeige | Fortschritt bis zur Fälligkeit | Ausgaben im Kalenderjahr vs. Jahresbudget, aktueller Stand der Rücklage |
 | Rest | – | pro Position wählbar: ins nächste Jahr übertragen oder jedes Kalenderjahr neu (Stand beginnt im Januar bei 0) |

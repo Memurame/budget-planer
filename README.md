@@ -5,8 +5,8 @@ Lokaler Budget-Planer für NixOS (Electron aus nixpkgs). Alle Daten bleiben auf 
 - Budget nach Gruppen, Einnahmen, Sparen & Abzüge – direkt in Tabellen bearbeitbar
 - **Monatsabhängige Beträge**: Ein Betrag gilt ab dem Monat, in dem er eingetragen wird, bis er in einem späteren Monat geändert wird. Frühere Monate bleiben unverändert.
 - **Rücklagen für jährliche Kosten**, zwei Arten:
-  - *Fällige Zahlung*: `Rate = (Betrag − angespart) / Monate bis zur Fälligkeit`
-    (der Fälligkeitsmonat zählt nicht mehr dazu), danach beginnt der nächste Zyklus mit `Betrag / Intervall`.
+  - *Fällige Zahlung*: `Rate = (Betrag − angespart) / Monate bis zur Fälligkeit`, der Fälligkeitsmonat
+    zählt mit (Zahlung Ende Monat); danach beginnt der nächste Zyklus im Folgemonat mit `Betrag / Intervall`.
   - *Jahresbudget*: gleichmässig `Betrag / 12`, laufende Ausgaben aus den Buchungen; pro Kalenderjahr,
     Rest wird übertragen oder jedes Jahr neu.
 

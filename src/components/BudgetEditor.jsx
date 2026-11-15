@@ -120,7 +120,7 @@ function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLa
                   />
                   {it.placeholder && <span className="text-warn" title="Platzhalter – bitte echtes Datum eintragen">{Icon.warn}</span>}
                 </span>
-                <span>{r.estimated ? `vor Planungsbeginn (${monthLabel(it.savedAsOf)}) – gleichmässig gerechnet` : r.payout > 0 ? `wird diesen Monat bezahlt (${fmtCHF(r.payout)})` : `noch ${r.left} Mt. · angespart ${fmtCHF(r.saved - r.rate)}`}</span>
+                <span>{r.estimated ? `vor Planungsbeginn (${monthLabel(it.savedAsOf)}) – gleichmässig gerechnet` : r.payout > 0 ? `wird diesen Monat bezahlt (${fmtCHF(r.payout)})` : `${r.left === 1 ? 'letzte Rate' : `noch ${r.left} Mt.`} · angespart ${fmtCHF(r.saved - r.rate)}`}</span>
                 {elevated && <span className="text-warn">erhöhte Rate (normal {fmtCHF(flatRate(it))})</span>}
               </div>
             )}
