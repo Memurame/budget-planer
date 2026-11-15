@@ -14,12 +14,14 @@
     in
     {
       packages = forAll (pkgs: rec {
-        budget = pkgs.callPackage ./package.nix { };
-        default = budget;
+        budget-planer = pkgs.callPackage ./package.nix { };
+        default = budget-planer;
       });
 
       overlays.default = final: _prev: {
-        budget = final.callPackage ./package.nix { };
+        budget-planer = final.callPackage ./package.nix { };
+        # Alter Name, bleibt vorerst als Alias erhalten
+        budget = final.budget-planer;
       };
 
       apps = forAll (pkgs: {

@@ -90,7 +90,8 @@ inputs.budget-planer = {
 { nixpkgs.overlays = [ budget-planer.overlays.default ]; }
 ```
 
-Danach das Paket `budget` installieren (z. B. in `home.packages`) – es erscheint als **Budget** im App-Menü.
+Danach das Paket `budget-planer` installieren (z. B. in `home.packages`) – es erscheint als **Budget** im App-Menü.
+Der frühere Paketname `budget` funktioniert vorerst weiter als Alias.
 
 ## Daten
 

@@ -2,6 +2,12 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 
+// Einstellungen (Speicherort, Design …) im bisherigen Ordner ~/.config/budget belassen,
+// auch nachdem die App in «budget-planer» umbenannt wurde. Ein explizit gesetzter Pfad bleibt unverändert.
+if (path.basename(app.getPath('userData')) === 'budget-planer') {
+  app.setPath('userData', path.join(app.getPath('appData'), 'budget'))
+}
+
 const configPath = () => path.join(app.getPath('userData'), 'config.json')
 const defaultDataPath = () => path.join(app.getPath('documents'), 'Budget', 'budget.json')
 

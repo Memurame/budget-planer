@@ -9,8 +9,8 @@
 }:
 
 buildNpmPackage {
-  pname = "budget";
-  version = "1.1.0";
+  pname = "budget-planer";
+  version = "1.1.1";
 
   # Nur die Quelldateien – node_modules und dist bleiben draussen
   src = lib.fileset.toSource {
@@ -26,7 +26,7 @@ buildNpmPackage {
     ];
   };
 
-  npmDepsHash = "sha256-yqiAa51PVJ5R4MNogvknrD6j00R8JePSCWZ1JIJX+TQ=";
+  npmDepsHash = "sha256-pbeRceLfHQhAzNOwuNyX/bLTy5LNxcFcousxne+bAHc=";
 
   nativeBuildInputs = [
     makeWrapper
@@ -41,18 +41,18 @@ buildNpmPackage {
   installPhase = ''
     runHook preInstall
 
-    app=$out/share/budget/app
+    app=$out/share/budget-planer/app
     mkdir -p $app $out/bin $out/share/icons/hicolor/scalable/apps
     cp -r package.json dist electron $app/
     rsvg-convert -w 256 -h 256 public/icon.svg -o $app/icon.png
 
-    cp public/icon.svg $out/share/icons/hicolor/scalable/apps/budget.svg
+    cp public/icon.svg $out/share/icons/hicolor/scalable/apps/budget-planer.svg
     for s in 32 48 64 128 256 512; do
       mkdir -p $out/share/icons/hicolor/''${s}x''${s}/apps
-      rsvg-convert -w $s -h $s public/icon.svg -o $out/share/icons/hicolor/''${s}x''${s}/apps/budget.png
+      rsvg-convert -w $s -h $s public/icon.svg -o $out/share/icons/hicolor/''${s}x''${s}/apps/budget-planer.png
     done
 
-    makeWrapper ${lib.getExe electron} $out/bin/budget \
+    makeWrapper ${lib.getExe electron} $out/bin/budget-planer \
       --add-flags $app \
       --add-flags "--ozone-platform-hint=auto" \
       --add-flags "--enable-wayland-ime=true"
@@ -62,13 +62,13 @@ buildNpmPackage {
 
   desktopItems = [
     (makeDesktopItem {
-      name = "budget";
+      name = "budget-planer";
       desktopName = "Budget";
       genericName = "Budget-Planer";
       comment = "Lokaler Budget-Planer mit Rücklagen und Statistiken";
-      exec = "budget";
-      icon = "budget";
-      startupWMClass = "budget";
+      exec = "budget-planer";
+      icon = "budget-planer";
+      startupWMClass = "budget-planer";
       categories = [ "Office" "Finance" ];
     })
   ];
@@ -77,6 +77,6 @@ buildNpmPackage {
     description = "Lokaler Budget-Planer (Electron) mit Rücklagen für jährliche Kosten und Statistiken";
     license = lib.licenses.mit;
     platforms = lib.platforms.linux;
-    mainProgram = "budget";
+    mainProgram = "budget-planer";
   };
 }
