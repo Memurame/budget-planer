@@ -143,7 +143,7 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
 | Monatliche Rate | (Betrag − angespart) ÷ Monate bis zur Fälligkeit | gleichmässig Betrag ÷ 12 |
 | Ausgaben | eine geplante Zahlung am Fälligkeitsdatum | beliebig viele Buchungen übers Jahr |
 | Anzeige | Fortschritt bis zur Fälligkeit | Ausgaben im Kalenderjahr vs. Jahresbudget, aktueller Stand der Rücklage |
-| Rest | – | wird ins nächste Jahr übertragen |
+| Rest | – | pro Position wählbar: ins nächste Jahr übertragen oder jedes Kalenderjahr neu (Stand beginnt im Januar bei 0) |
 
 ## 7. Saldo-Abgleich und Korrekturen
 

@@ -3,7 +3,7 @@ import { Bar } from 'react-chartjs-2'
 import { Card, Button, IconButton, AmountInput, TextInput, Stat, Progress, Badge, Icon } from './ui.jsx'
 import { fmtCHF, fmtCHF0, fmtDate } from '../lib/format.js'
 import { actualByPositionRange } from '../lib/tx.js'
-import { diffMonths, isBudgetMode, nextDueMonth } from '../lib/calc.js'
+import { budgetPeriodStart, diffMonths, isBudgetMode, nextDueMonth } from '../lib/calc.js'
 import { addMonths, annualForecast, flatRate, makeMonthly, monthLabel, onTrackSaved, removeRef, reserveItems, resolveRef, simulateAnnual, uid } from '../lib/calc.js'
 import { baseOptions, barStyle, readColors } from '../lib/charts.js'
 
@@ -28,7 +28,7 @@ export default function Reserves({ data, update, month, theme, tx }) {
         if (!isBudgetMode(item)) return { item, group, ref, r, flat, startSaved: planned, elevated: r.rate > flat * 1.25 + 0.01 }
         // Jahresbudget: tatsächlicher Stand = angespart − Ausgaben seit Planungsbeginn
         const sum = (a, b) => (diffMonths(a, b) < 0 ? 0 : actualByPositionRange(tx.transactions, a, b)[item.id] || 0)
-        const since = item.savedAsOf || month
+        const since = budgetPeriodStart(item, month) // bei «jedes Jahr neu»: ab Januar
         const spentBefore = sum(since, addMonths(month, -1))
         const spentNow = sum(month, month)
         const year = month.slice(0, 4)
@@ -81,7 +81,7 @@ export default function Reserves({ data, update, month, theme, tx }) {
 
       <Card
         title="Alle Positionen mit Rücklage"
-        subtitle="Fällige Zahlung: Rate = (Betrag − angespart) ÷ Monate bis zur Fälligkeit. Jahresbudget: gleichmässig Betrag ÷ 12, Ausgaben laufend aus den Buchungen, der Rest wird übertragen."
+        subtitle="Fällige Zahlung: Rate = (Betrag − angespart) ÷ Monate bis zur Fälligkeit. Jahresbudget: gleichmässig Betrag ÷ 12, Ausgaben laufend aus den Buchungen; pro Kalenderjahr – Rest übertragen oder jedes Jahr neu."
         actions={
           <>
             <Button onClick={allOnTrack} title="Angespart-Werte auf gleichmässigen Verlauf setzen">{Icon.target} Alle auf Soll-Stand</Button>
@@ -133,6 +133,17 @@ export default function Reserves({ data, update, month, theme, tx }) {
                       <option value="due">Fällige Zahlung</option>
                       <option value="budget">Jahresbudget (laufend)</option>
                     </select>
+                    {budget && (
+                      <select
+                        value={item.carry === 'reset' ? 'reset' : 'carry'}
+                        onChange={(e) => set(idx, (a) => { if (e.target.value === 'reset') a.carry = 'reset'; else delete a.carry })}
+                        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12px] text-ink-2 outline-none hover:border-line focus:border-accent"
+                        title="Was passiert mit dem nicht ausgegebenen Rest am Ende des Kalenderjahres?"
+                      >
+                        <option value="carry">Rest übertragen</option>
+                        <option value="reset">Jedes Jahr neu</option>
+                      </select>
+                    )}
                     {!budget && <div className="flex items-center gap-1.5">
                       <input
                         type="date"

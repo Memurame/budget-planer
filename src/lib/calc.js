@@ -35,13 +35,22 @@ export function nextDueMonth(item, fromKey) {
  */
 /** Laufendes Jahresbudget statt Zahlung an einem Fälligkeitsdatum? */
 export const isBudgetMode = (item) => item.mode === 'budget'
+/** Jahresbudget, das jedes Kalenderjahr neu beginnt (Rest wird nicht übertragen)? */
+export const resetsYearly = (item) => isBudgetMode(item) && item.carry === 'reset'
+/** Ab welchem Monat zählt der laufende Stand: Planungsbeginn, bei «jedes Jahr neu» frühestens Januar des Jahres. */
+export function budgetPeriodStart(item, key) {
+  const start = item.savedAsOf || key
+  if (!resetsYearly(item)) return start
+  const jan = `${key.slice(0, 4)}-01`
+  return diffMonths(start, jan) > 0 ? jan : start
+}
 
 export function simulateAnnual(item, fromKey, count) {
   const amount = Number(item.amount) || 0
   const interval = Math.max(1, Number(item.intervalMonths) || 12)
 
   // Jahresbudget: gleichmässig ansparen, keine geplante Zahlung – Ausgaben kommen aus den Buchungen.
-  // Der Rest bleibt in der Rücklage (wird ins nächste Jahr übertragen).
+  // «übertragen»: der Rest bleibt in der Rücklage. «jedes Jahr neu»: Stand beginnt jeden Januar bei 0.
   if (isBudgetMode(item)) {
     const rate = amount / interval
     const start = item.savedAsOf || fromKey
@@ -49,7 +58,9 @@ export function simulateAnnual(item, fromKey, count) {
     for (let i = 0; i < count; i++) {
       const m = addMonths(fromKey, i)
       const known = diffMonths(start, m) >= 0
-      const saved = known ? (Number(item.saved) || 0) + rate * (diffMonths(start, m) + 1) : null
+      const from = budgetPeriodStart(item, m)
+      const base = from === start ? Number(item.saved) || 0 : 0
+      const saved = known ? base + rate * (diffMonths(from, m) + 1) : null
       out.push({ month: m, rate, payout: 0, saved, due: null, left: null, estimated: !known, budget: true })
     }
     return out
