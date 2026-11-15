@@ -25,6 +25,9 @@ export default function Transactions({ data, update, month, tx }) {
   const [selected, setSelected] = useState(new Set())
   const [imp, setImp] = useState(null)
   const [ruleHint, setRuleHint] = useState(null)
+  const [lastRule, setLastRule] = useState(null) // zuletzt automatisch erstellte Regel (für Bearbeiten/Rückgängig)
+  const [autoRule, setAutoRuleState] = useState(() => localStorage.getItem('autoRule') !== 'off')
+  const setAutoRule = (v) => { setAutoRuleState(v); localStorage.setItem('autoRule', v ? 'on' : 'off'); setRuleHint(null) }
   const [showManual, setShowManual] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -71,10 +74,45 @@ export default function Transactions({ data, update, month, tx }) {
       const pattern = suggestPattern(t.text)
       const existing = findRule(data.rules, t.text)
       if (pattern && !(existing && existing.positionId === pid)) {
-        const similar = tx.transactions.filter((x) => x.id !== t.id && ['open', 'auto'].includes(x.status) && ruleMatches({ pattern }, x.text)).length
-        setRuleHint({ pattern, positionId: pid, similar })
+        if (autoRule) addRule(pattern, pid, t.text, t.id)
+        else {
+          const similar = tx.transactions.filter((x) => x.id !== t.id && ['open', 'auto'].includes(x.status) && ruleMatches({ pattern }, x.text)).length
+          setRuleHint({ pattern, positionId: pid, similar, text: t.text })
+        }
       }
     }
+  }
+
+  /**
+   * Neue Regel speichern und sofort anwenden. Trifft bereits eine andere Regel auf diesen Text zu,
+   * bekommt die neue Regel Vorrang (wird davor eingefügt) – die manuelle Korrektur soll gelten.
+   */
+  const addRule = (pattern, positionId, text, skipId = null) => {
+    const rule = { id: uid(), pattern: pattern.trim(), positionId }
+    const conflict = text ? data.rules.findIndex((r) => ruleMatches(r, text)) : -1
+    const rules = [...data.rules]
+    rules.splice(conflict >= 0 ? conflict : rules.length, 0, rule)
+    update((d) => { d.rules = rules })
+    const count = applyAllRules(rules, skipId)
+    setLastRule({ ...rule, count, editing: false, draft: rule.pattern })
+    setRuleHint(null)
+  }
+
+  /** Muster der zuletzt erstellten Regel ändern und neu anwenden. */
+  const changeLastRule = (pattern) => {
+    const rules = data.rules.map((r) => (r.id === lastRule.id ? { ...r, pattern: pattern.trim() } : r))
+    update((d) => { d.rules = rules })
+    const count = applyAllRules(rules)
+    setLastRule({ ...lastRule, pattern: pattern.trim(), draft: pattern.trim(), count, editing: false })
+  }
+
+  /** Zuletzt erstellte Regel entfernen; von ihr zugeordnete (nicht bestätigte) Buchungen werden wieder offen. */
+  const undoLastRule = () => {
+    const rules = data.rules.filter((r) => r.id !== lastRule.id)
+    update((d) => { d.rules = rules })
+    applyAllRules(rules)
+    setLastRule(null)
+    flash('Regel entfernt.')
   }
   const setIgnored = (list, ignored) => {
     if (!guard(list)) return
@@ -97,21 +135,15 @@ export default function Transactions({ data, update, month, tx }) {
     if (pid === '__ignore') return setIgnored(list, true)
     tx.updateTx(list.map((t) => t.id), (x) => { x.positionId = pid; x.status = 'manual'; x.ruleId = null; x.override = true })
   }
-  const applyAllRules = (rules = data.rules) => {
-    let changed = 0
+  const applyAllRules = (rules = data.rules, skipId = null) => {
+    // Anzahl vorab auf dem aktuellen Stand zählen (die Zustandsänderung selbst läuft verzögert)
+    const changed = tx.transactions.filter((t) => t.id !== skipId && !tx.isClosed(monthOf(t.date)) && applyRules({ ...t }, rules)).length
     tx.updateYears((d) => {
-      for (const y of Object.keys(d)) for (const t of d[y].transactions) if (!tx.isClosed(monthOf(t.date)) && applyRules(t, rules)) changed++
+      for (const y of Object.keys(d)) for (const t of d[y].transactions) if (!tx.isClosed(monthOf(t.date))) applyRules(t, rules)
     })
     return changed
   }
-  const createRule = () => {
-    const rule = { id: uid(), pattern: ruleHint.pattern, positionId: ruleHint.positionId }
-    const rules = [...data.rules, rule]
-    update((d) => { d.rules.push(rule) })
-    const n = applyAllRules(rules)
-    setRuleHint(null)
-    flash(`Regel «${rule.pattern}» erstellt${n ? `, ${n} weitere Buchung${n > 1 ? 'en' : ''} zugeordnet` : ''}.`)
-  }
+  const createRule = () => addRule(ruleHint.pattern, ruleHint.positionId, ruleHint.text)
   const link = (a, b) => {
     tx.updateTx([a.id, b.id], (x) => { x.linkedId = x.id === a.id ? b.id : a.id })
   }
@@ -267,17 +299,6 @@ export default function Transactions({ data, update, month, tx }) {
         <RulesEditor data={data} update={update} tx={tx} onApply={(rules) => { const n = applyAllRules(rules); flash(n ? `${n} Buchungen neu zugeordnet.` : 'Keine Änderungen.') }} />
       ) : (
         <>
-          {ruleHint && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px]">
-              <span className="text-ink-2">Künftig immer so zuordnen? Texte mit</span>
-              <input value={ruleHint.pattern} onChange={(e) => setRuleHint({ ...ruleHint, pattern: e.target.value })} className="w-48 rounded-md border border-line bg-surface px-2 py-1 outline-none focus:border-accent" />
-              <span className="text-ink-2">→ <b className="text-ink">{positionName(data, ruleHint.positionId)}</b>{ruleHint.similar > 0 && ` (betrifft ${ruleHint.similar} weitere)`}</span>
-              <div className="ml-auto flex gap-2">
-                <Button variant="ghost" onClick={() => setRuleHint(null)}>Nein</Button>
-                <Button variant="primary" onClick={createRule} disabled={!ruleHint.pattern.trim()}>Regel erstellen</Button>
-              </div>
-            </div>
-          )}
 
           {offsets.length > 0 && (
             <Card title="Mögliche Ausgleichsbuchungen" subtitle="Umbuchung mit gleichem Betrag kurz nach einer Ausgabe – z. B. aus dem falschen Konto bezahlt und wieder ausgeglichen">
@@ -330,6 +351,11 @@ export default function Transactions({ data, update, month, tx }) {
               </>
             ) : (
               <>
+                <label className="flex cursor-pointer items-center gap-1.5 text-ink-2" title="Beim Wählen einer Position wird sofort eine Regel erstellt und auf alle offenen Buchungen angewendet">
+                  <input type="checkbox" checked={autoRule} onChange={(e) => setAutoRule(e.target.checked)} className="accent-[var(--accent)]" />
+                  Beim Zuordnen gleich Regel erstellen
+                </label>
+                <span className="text-ink-3">·</span>
                 <span className="text-ink-3">{visible.length} Buchungen · Summe {fmtCHF(visible.filter((t) => t.status !== 'ignored').reduce((s, t) => s + t.amount, 0))}</span>
                 {confirmable.length > 0 && (
                   <Button className="ml-auto" onClick={() => confirmTx(confirmable)}>{Icon.check} Alle {confirmable.length} sichtbaren zugeordneten bestätigen</Button>
@@ -406,6 +432,61 @@ export default function Transactions({ data, update, month, tx }) {
           </Card>
         </>
       )}
+
+      {(lastRule || ruleHint) && <div className="h-16" />}
+
+      {/* Regel wurde automatisch erstellt → bearbeiten oder rückgängig */}
+      {lastRule && !ruleHint && (
+        <BottomBar onClose={() => setLastRule(null)}>
+          <span className="text-good">{Icon.check}</span>
+          {lastRule.editing ? (
+            <>
+              <span className="text-ink-2">Texte mit</span>
+              <input
+                autoFocus
+                value={lastRule.draft}
+                onChange={(e) => setLastRule({ ...lastRule, draft: e.target.value })}
+                onKeyDown={(e) => e.key === 'Enter' && lastRule.draft.trim() && changeLastRule(lastRule.draft)}
+                className="w-48 rounded-md border border-line bg-surface px-2 py-1 outline-none focus:border-accent"
+              />
+              <span className="text-ink-2">→ <b className="text-ink">{positionName(data, lastRule.positionId)}</b></span>
+              <Button variant="primary" onClick={() => changeLastRule(lastRule.draft)} disabled={!lastRule.draft.trim()}>Übernehmen</Button>
+            </>
+          ) : (
+            <>
+              <span className="text-ink-2">
+                Regel <b className="text-ink">«{lastRule.pattern}»</b> → <b className="text-ink">{positionName(data, lastRule.positionId)}</b> erstellt
+                {lastRule.count > 0 ? `, ${lastRule.count} weitere zugeordnet` : ''}
+              </span>
+              <Button variant="ghost" onClick={() => setLastRule({ ...lastRule, editing: true })}>Muster bearbeiten</Button>
+              <Button variant="ghost" onClick={undoLastRule}>Rückgängig</Button>
+            </>
+          )}
+        </BottomBar>
+      )}
+
+      {/* Automatik aus → nachfragen */}
+      {ruleHint && (
+        <BottomBar onClose={() => setRuleHint(null)}>
+          <span className="text-ink-2">Künftig immer so zuordnen? Texte mit</span>
+          <input value={ruleHint.pattern} onChange={(e) => setRuleHint({ ...ruleHint, pattern: e.target.value })} className="w-48 rounded-md border border-line bg-surface px-2 py-1 outline-none focus:border-accent" />
+          <span className="text-ink-2">→ <b className="text-ink">{positionName(data, ruleHint.positionId)}</b>{ruleHint.similar > 0 && ` (betrifft ${ruleHint.similar} weitere)`}</span>
+          <Button variant="ghost" onClick={() => setRuleHint(null)}>Nein</Button>
+          <Button variant="primary" onClick={createRule} disabled={!ruleHint.pattern.trim()}>Regel erstellen</Button>
+        </BottomBar>
+      )}
+    </div>
+  )
+}
+
+/** Fixierte Leiste am unteren Rand – immer sichtbar, auch beim Scrollen. */
+function BottomBar({ children, onClose }) {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex justify-center px-4">
+      <div className="pointer-events-auto flex max-w-[960px] flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-3 text-[13px] shadow-[0_8px_30px_rgba(0,0,0,0.18)]">
+        {children}
+        <IconButton title="Schliessen" onClick={onClose}>×</IconButton>
+      </div>
     </div>
   )
 }
