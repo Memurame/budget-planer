@@ -197,6 +197,15 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
 6. Soll/Ist prüfen, Rücklagen-Hinweise bearbeiten.
 7. Optional **Monat abschliessen** → Buchungen dieses Monats nur noch nach Rückfrage änderbar.
 
+## 10a. Startmonat
+
+- In den Einstellungen: **Start des Budget-Planers** (Monat, `startMonth` in `budget.json`, optional).
+- Frühere Monate lassen sich nicht anwählen; der Verlauf in der Statistik bleibt dort leer.
+- Buchungen vor dem Startmonat werden ausgeblendet (nicht gelöscht), beim CSV-Import übersprungen
+  und wiederkehrende Buchungen erst ab dem Startmonat erzeugt.
+- Kontosalden, Saldo-Abgleich und Duplikaterkennung rechnen weiterhin mit allen Buchungen.
+- Nicht gesetzt → alles wie bisher.
+
 ## 11. Umsetzung in Etappen
 
 1. Konten, Buchungen (manuell + CSV-Import mit Duplikaterkennung), Regeln, Zuordnung, Status und Bestätigung

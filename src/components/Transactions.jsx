@@ -211,19 +211,24 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
 
   const preview = useMemo(() => {
     if (!imp) return null
-    const existing = new Set(tx.transactions.map((t) => t.id))
-    const fresh = imp.rows.filter((r) => !existing.has(r.id) && !tx.deletedIds.has(r.id))
-    const deleted = imp.rows.filter((r) => !existing.has(r.id) && tx.deletedIds.has(r.id)).length
+    // Duplikate gegen alle Buchungen prüfen, auch die vor dem Startmonat ausgeblendeten
+    const existing = new Set(tx.allTransactions.map((t) => t.id))
+    // Zeilen vor dem Start des Budget-Planers werden übersprungen
+    const isBeforeStart = (r) => !!tx.startMonth && monthOf(r.date) < tx.startMonth
+    const beforeStart = imp.rows.filter(isBeforeStart).length
+    const rows = imp.rows.filter((r) => !isBeforeStart(r))
+    const fresh = rows.filter((r) => !existing.has(r.id) && !tx.deletedIds.has(r.id))
+    const deleted = rows.filter((r) => !existing.has(r.id) && tx.deletedIds.has(r.id)).length
     let ignored = 0, auto = 0
     for (const r of fresh) {
       const rule = findRule(data.rules, r.text)
       if (rule?.action === 'ignore') ignored++
       else if (rule) auto++
     }
-    const months = [...new Set(imp.rows.map((r) => monthOf(r.date)))].sort()
+    const months = [...new Set(rows.map((r) => monthOf(r.date)))].sort()
     const closedHit = months.filter((m) => tx.isClosed(m))
-    return { fresh, deleted, duplicates: imp.rows.length - fresh.length - deleted, ignored, auto, open: fresh.length - ignored - auto, months, closedHit }
-  }, [imp, tx.transactions, data.rules])
+    return { fresh, deleted, beforeStart, duplicates: rows.length - fresh.length - deleted, ignored, auto, open: fresh.length - ignored - auto, months, closedHit }
+  }, [imp, tx.allTransactions, tx.startMonth, data.rules])
 
   const doImport = () => {
     const ids = {}
@@ -298,7 +303,7 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
       {imp && preview && (
         <Card
           title={`Import: ${imp.file}`}
-          subtitle={`${imp.rows.length} Zeilen · ${preview.months.map((m) => monthLabel(m)).join(', ')}${imp.skipped ? ` · ${imp.skipped} nicht abgeschlossene übersprungen` : ''}`}
+          subtitle={`${imp.rows.length} Zeilen · ${preview.months.map((m) => monthLabel(m)).join(', ')}${imp.skipped ? ` · ${imp.skipped} nicht abgeschlossene übersprungen` : ''}${preview.beforeStart ? ` · ${preview.beforeStart} vor dem Start (${monthLabel(tx.startMonth)}) übersprungen` : ''}`}
           actions={
             <>
               <Button variant="ghost" onClick={closeImport}>Abbrechen</Button>

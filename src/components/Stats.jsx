@@ -196,15 +196,17 @@ function History({ data, month, theme, tx }) {
   const rows = useMemo(() => {
     const spent = {}
     for (const t of tx.transactions) if (counts(t)) spent[monthOf(t.date)] = (spent[monthOf(t.date)] || 0) - t.amount
-    return Array.from({ length: 12 }, (_, i) => addMonths(month, i - 11)).map((m) => ({ m, s: summary(data, m), spent: m in spent ? spent[m] : null }))
-  }, [data, month, tx.transactions])
+    // Monate vor dem Start des Budget-Planers bleiben leer
+    const before = (m) => !!tx.startMonth && m < tx.startMonth
+    return Array.from({ length: 12 }, (_, i) => addMonths(month, i - 11)).map((m) => ({ m, s: before(m) ? null : summary(data, m), spent: m in spent ? spent[m] : null }))
+  }, [data, month, tx.transactions, tx.startMonth])
   const hasSpent = rows.some((r) => r.spent !== null)
   const c = readColors()
   const opts = baseOptions(theme.resolved, { legend: true })
   opts.interaction = { mode: 'index', intersect: false }
   const line = (label, color, get) => ({
     label,
-    data: rows.map((r) => get(r.s)),
+    data: rows.map((r) => (r.s ? get(r.s) : null)),
     borderColor: color,
     backgroundColor: color,
     borderWidth: 2,
