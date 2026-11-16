@@ -86,6 +86,9 @@ Budget/
 - Konten frei anlegen: Girokonto, Pockets, externe Konten (z. B. Lohnkonto).
 - Pro Konto festlegen, **welche Budget-Positionen es finanziert** (für die Kontrolle pro Konto).
 - Konten ohne CSV-Export werden nur über manuelle Buchungen und Salden geführt.
+- **Ansicht**: Kennzahlen (Total, offene Abgleiche, Buchungen ohne Konto), darunter eine kompakte Liste mit Status-Badge,
+  Budget-Balken des Monats und Saldo. Details klappen pro Konto auf (Saldo-Abgleich, Buchungen, finanzierte Positionen, Einstellungen).
+- **Rücklagen-Soll**: Finanziert ein Konto Rücklagen, wird der Saldo mit deren Soll-Stand am Monatsende verglichen.
 
 ## 4. Import
 
