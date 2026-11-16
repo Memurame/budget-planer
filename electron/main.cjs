@@ -129,6 +129,22 @@ ipcMain.handle('budget:export-csv', async (_e, csv) => {
   return { path: res.filePath }
 })
 
+// Neueste Version auf GitHub abfragen (nur lesend, es werden keine Daten gesendet)
+const REPO = 'Memurame/budget-planer'
+ipcMain.handle('app:latest-release', async () => {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'budget-planer' },
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) return null
+    const r = await res.json()
+    return { version: String(r.tag_name || '').replace(/^v/, ''), url: r.html_url, name: r.name }
+  } catch {
+    return null // offline o. Ä. – still ignorieren
+  }
+})
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,

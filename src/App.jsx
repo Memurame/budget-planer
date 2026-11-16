@@ -14,6 +14,7 @@ import { useTheme } from './lib/theme.js'
 import { useTxStore } from './lib/useTx.js'
 import { actualByPosition, migrate, monthProgress } from './lib/tx.js'
 import { buildOccurrences, todayStr } from './lib/recurring.js'
+import { APP_VERSION, REPO_URL, useUpdateCheck } from './lib/version.js'
 
 const NAV = [
   { id: 'overview', label: 'Übersicht', icon: Icon.home },
@@ -32,6 +33,7 @@ export default function App() {
   const [view, setView] = useState(() => localStorage.getItem('view') || 'overview')
   const [month, setMonth] = useState(monthKey())
   const theme = useTheme()
+  const newRelease = useUpdateCheck()
   const dirty = useRef(false)
   const txStore = useTxStore()
   const { ensureYears } = txStore
@@ -131,8 +133,24 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="mt-auto px-3 text-[12px] text-ink-3">
-          {anyError ? <span className="text-bad">Speichern fehlgeschlagen</span> : anySaving ? 'Speichert …' : (saveState === 'saved' || txStore.saveState === 'saved') && '✓ Gespeichert'}
+        <div className="mt-auto flex flex-col gap-2 px-3 text-[12px] text-ink-3">
+          <div>
+            {anyError ? <span className="text-bad">Speichern fehlgeschlagen</span> : anySaving ? 'Speichert …' : (saveState === 'saved' || txStore.saveState === 'saved') && '✓ Gespeichert'}
+          </div>
+          {newRelease && (
+            <a
+              href={newRelease.url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg bg-accent-soft px-2.5 py-1.5 font-medium text-accent hover:underline"
+              title={newRelease.name || `Version ${newRelease.version}`}
+            >
+              Neue Version {newRelease.version} verfügbar
+            </a>
+          )}
+          <a href={REPO_URL} target="_blank" rel="noreferrer" className="hover:text-ink hover:underline" title="Projekt auf GitHub">
+            budget-planer v{APP_VERSION}
+          </a>
         </div>
       </aside>
 
