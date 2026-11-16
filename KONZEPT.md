@@ -86,6 +86,12 @@ Budget/
 - Konten frei anlegen: Girokonto, Pockets, externe Konten (z. B. Lohnkonto).
 - Pro Konto festlegen, **welche Budget-Positionen es finanziert** (für die Kontrolle pro Konto).
 - Konten ohne CSV-Export werden nur über manuelle Buchungen und Salden geführt.
+- **Unterkonten** (`parentId`, eine Ebene): Pockets lassen sich einem Bank-Produkt unterordnen (z. B. Revolut «Erspartes»).
+  Der Saldo-Abgleich läuft auf dem Produkt (CSV-Kontostand); angezeigt wird zusätzlich, was «nicht auf Unterkonten verteilt» ist
+  (Saldo des Produkts − Summe der Unterkonten). Hat das übergeordnete Konto keine eigenen Daten, ist sein Saldo die Summe der Unterkonten.
+- **Ansicht**: Kennzahlen (Total, offene Abgleiche, Buchungen ohne Konto), darunter eine kompakte Liste mit Status-Badge,
+  Budget-Balken des Monats und Saldo. Details klappen pro Konto auf (Saldo-Abgleich, Buchungen, finanzierte Positionen, Einstellungen).
+- **Rücklagen-Soll**: Finanziert ein Konto Rücklagen, wird der Saldo mit deren Soll-Stand am Monatsende verglichen.
 
 ## 4. Import
 
