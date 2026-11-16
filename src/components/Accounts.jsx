@@ -3,8 +3,8 @@ import { Card, Button, IconButton, Badge, Icon, AmountInput, TextInput, Stat, as
 import PositionSelect from './PositionSelect.jsx'
 import { fmtCHF, fmtDate } from '../lib/format.js'
 import { itemMonthly, monthLabel, uid } from '../lib/calc.js'
-import { ACCOUNT_TYPES, allPositions, balanceCheck, monthOf, yearOf } from '../lib/tx.js'
-import { accountTree, nodeBalances, parentCandidates, reconcileStatus, reserveTarget } from '../lib/accounts.js'
+import { ACCOUNT_TYPES, allPositions, balanceCheck, currentBalance, monthOf, yearOf } from '../lib/tx.js'
+import { reconcileStatus, reserveTarget } from '../lib/accounts.js'
 import { todayStr } from '../lib/recurring.js'
 
 const lastDayOf = (key) => {
@@ -18,17 +18,13 @@ export default function Accounts({ data, update, month, tx, setView }) {
   const toggle = (id) => setOpen((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const positions = useMemo(() => allPositions(data), [data])
-  const tree = useMemo(() => accountTree(data.accounts), [data.accounts])
-  const nodes = useMemo(
-    () => tree.map((node) => ({ ...node, ...nodeBalances(node, tx.balances, tx.transactions) })),
-    [tree, tx.balances, tx.transactions],
+  const balances = useMemo(
+    () => Object.fromEntries(data.accounts.map((a) => [a.id, currentBalance(a, tx.balances, tx.transactions)])),
+    [data.accounts, tx.balances, tx.transactions],
   )
   const today = todayStr()
-  const total = nodes.reduce((s, n) => s + n.total, 0)
-  const childIds = new Set(tree.flatMap((n) => n.children.map((c) => c.id)))
-  const statuses = Object.fromEntries(
-    data.accounts.map((a) => [a.id, reconcileStatus(a, tx.balances, tx.transactions, today, { child: childIds.has(a.id) })]),
-  )
+  const total = Object.values(balances).reduce((s, b) => s + b.amount, 0)
+  const statuses = Object.fromEntries(data.accounts.map((a) => [a.id, reconcileStatus(a, tx.balances, tx.transactions, today)]))
   const attention = Object.values(statuses).filter((s) => s && s.tone !== 'good').length
   const withoutAccount = data.accounts.length ? tx.transactions.filter((t) => !t.accountId && monthOf(t.date) === month).length : 0
 
@@ -64,25 +60,10 @@ export default function Accounts({ data, update, month, tx, setView }) {
           <span className="hidden md:block">Budget {monthLabel(month, false)}</span>
           <span className="text-right">Saldo</span>
         </div>
-        {nodes.length === 0 && <p className="px-5 py-6 text-[13px] text-ink-3">Noch keine Konten. Lege unten ein Konto an oder importiere einen Kontoauszug unter «Buchungen».</p>}
-        {nodes.map((n) => (
-          <div key={n.account.id} className="border-b border-line last:border-b-0">
-            <AccountRow account={n.account} balance={n.groupOnly ? { amount: n.childSum, since: null } : n.own} groupOnly={n.groupOnly} {...rowProps} />
-            {n.kids.map((k) => (
-              <AccountRow key={k.account.id} account={k.account} balance={k.balance} child {...rowProps} />
-            ))}
-            {n.unassigned !== null && Math.abs(n.unassigned) >= 0.005 && (
-              <div
-                className="grid grid-cols-[28px_1fr_auto] items-center gap-3 px-4 py-1.5 text-[13px] text-ink-3 md:grid-cols-[28px_1fr_120px_180px_130px]"
-                title="Saldo des Kontos minus Summe der Unterkonten – Geld, das keinem Unterkonto zugeordnet ist (oder fehlende Buchungen bei den Unterkonten)."
-              >
-                <span />
-                <span className="pl-6 italic">nicht auf Unterkonten verteilt</span>
-                <span className="hidden md:block" />
-                <span className="hidden md:block" />
-                <span className="num text-right">{fmtCHF(n.unassigned)}</span>
-              </div>
-            )}
+        {data.accounts.length === 0 && <p className="px-5 py-6 text-[13px] text-ink-3">Noch keine Konten. Lege unten ein Konto an oder importiere einen Kontoauszug unter «Buchungen».</p>}
+        {data.accounts.map((a) => (
+          <div key={a.id} className="border-b border-line last:border-b-0">
+            <AccountRow account={a} balance={balances[a.id]} {...rowProps} />
           </div>
         ))}
       </Card>
@@ -100,14 +81,14 @@ export default function Accounts({ data, update, month, tx, setView }) {
 
       <p className="text-[12px] text-ink-3">
         Konten sind die Orte, von denen bezahlt wird (Girokonto, Pockets, externe Konten); jede Buchung gehört zusätzlich zu einer Budget-Position.
-        Pockets lassen sich einem Bank-Produkt unterordnen (z. B. «Erspartes»): Der Saldo-Abgleich läuft dann auf dem Produkt, so wie es im CSV steht.
+        Trage zum Monatsende den tatsächlichen Saldo ein – die App vergleicht ihn mit dem berechneten Wert.
       </p>
     </div>
   )
 }
 
 /** Eine Zeile der Kontenliste; aufgeklappt mit Details. */
-function AccountRow({ account: a, balance, child, groupOnly, data, update, month, tx, positions, statuses, open, toggle }) {
+function AccountRow({ account: a, balance, data, update, month, tx, positions, statuses, open, toggle }) {
   const isOpen = open.has(a.id)
   const status = statuses[a.id]
   const funded = positions.filter((p) => (a.funds || []).includes(p.id))
@@ -127,11 +108,10 @@ function AccountRow({ account: a, balance, child, groupOnly, data, update, month
         className={`grid cursor-pointer grid-cols-[28px_1fr_auto] items-center gap-3 px-4 py-2.5 transition hover:bg-surface-2 md:grid-cols-[28px_1fr_120px_180px_130px] ${isOpen ? 'bg-surface-2' : ''}`}
       >
         <span className={`grid size-6 place-items-center text-ink-3 transition ${isOpen ? '' : '-rotate-90'}`}>{Icon.down}</span>
-        <div className={`min-w-0 ${child ? 'border-l border-line pl-5' : ''}`}>
-          <div className={`truncate text-[14px] ${child ? '' : 'font-medium'}`}>{a.name}</div>
+        <div className="min-w-0">
+          <div className="truncate text-[14px] font-medium">{a.name}</div>
           <div className="truncate text-[12px] text-ink-3">
             {ACCOUNT_TYPES[a.type] || a.type}
-            {groupOnly && ' · Summe der Unterkonten'}
             {reserveSoll !== null && (
               <span className={Math.abs(reserveDiff) < 0.005 ? '' : reserveDiff < 0 ? 'text-bad' : 'text-good'} title="Berechneter Saldo verglichen mit dem Soll-Stand der finanzierten Rücklagen am Monatsende">
                 {' · '}Rücklagen-Soll {fmtCHF(reserveSoll)}
@@ -156,7 +136,7 @@ function AccountRow({ account: a, balance, child, groupOnly, data, update, month
             <span className="text-[12px] text-ink-3">–</span>
           )}
         </div>
-        <div className={`num text-right ${child ? 'text-[14px]' : 'text-[15px] font-semibold'}`}>{fmtCHF(balance.amount)}</div>
+        <div className="num text-right text-[15px] font-semibold">{fmtCHF(balance.amount)}</div>
       </div>
       {isOpen && <AccountDetails account={a} funded={funded} plan={plan} actual={actual} balance={balance} data={data} update={update} month={month} tx={tx} />}
     </>
@@ -323,21 +303,11 @@ function Funding({ account: a, funded, plan, actual, data, set }) {
   )
 }
 
-function AccountSettings({ account: a, data, update, set, tx }) {
-  const candidates = parentCandidates(a, data.accounts)
-  const hasChildren = data.accounts.some((c) => c.parentId === a.id)
+function AccountSettings({ account: a, update, set, tx }) {
   const remove = async () => {
     const n = tx.transactions.filter((t) => t.accountId === a.id).length
-    const kids = data.accounts.filter((c) => c.parentId === a.id).length
-    const msg = [
-      n ? `${n} Buchungen bleiben erhalten, sind danach aber keinem Konto mehr zugeordnet.` : 'Das Konto wird entfernt.',
-      kids ? `${kids} Unterkonten werden zu eigenständigen Konten.` : '',
-    ].filter(Boolean).join(' ')
-    const ok = await askDelete({ title: `Konto «${a.name}» löschen?`, message: msg })
-    if (ok) update((d) => {
-      d.accounts = d.accounts.filter((x) => x.id !== a.id)
-      for (const c of d.accounts) if (c.parentId === a.id) delete c.parentId
-    })
+    const ok = await askDelete({ title: `Konto «${a.name}» löschen?`, message: n ? `${n} Buchungen bleiben erhalten, sind danach aber keinem Konto mehr zugeordnet.` : 'Das Konto wird entfernt.' })
+    if (ok) update((d) => { d.accounts = d.accounts.filter((x) => x.id !== a.id) })
   }
   const label = 'mb-1 text-[12px] text-ink-3'
   const field = 'rounded-md border border-line bg-surface px-2 py-1 text-[13px] outline-none focus:border-accent'
@@ -351,19 +321,6 @@ function AccountSettings({ account: a, data, update, set, tx }) {
         <div className={label}>Art</div>
         <select value={a.type} onChange={(e) => set((x) => { x.type = e.target.value })} className={field}>
           {Object.entries(ACCOUNT_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
-      </div>
-      <div>
-        <div className={label}>Gehört zu</div>
-        <select
-          value={a.parentId || ''}
-          disabled={hasChildren}
-          title={hasChildren ? 'Dieses Konto hat selbst Unterkonten' : 'z. B. Pocket → Revolut «Erspartes»'}
-          onChange={(e) => set((x) => { if (e.target.value) x.parentId = e.target.value; else delete x.parentId })}
-          className={`${field} disabled:opacity-50`}
-        >
-          <option value="">– eigenständig –</option>
-          {candidates.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </div>
       <Button variant="danger" className="ml-auto" onClick={remove}>{Icon.trash} Konto löschen</Button>

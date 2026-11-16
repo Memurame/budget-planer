@@ -1,62 +1,20 @@
-// Konten-Übersicht: Hierarchie (Bank-Produkt → Pockets), Totale, Status des Abgleichs, Rücklagen-Soll.
+// Konten-Übersicht: Status des Abgleichs, Rücklagen-Soll.
 import { budgetPeriodStart, diffMonths, isBudgetMode, simulateAnnual } from './calc.js'
-import { actualByPositionRange, balanceAt, balanceCheck, currentBalance } from './tx.js'
+import { actualByPositionRange, balanceAt, balanceCheck } from './tx.js'
 import { fmtCHF, fmtDate } from './format.js'
 
 /** Ab so vielen Tagen ohne eingetragenen Saldo gilt der Abgleich als fällig. */
 export const RECONCILE_DAYS = 35
 
 /**
- * Konten als Baum mit einer Ebene: oberste Konten in ihrer Reihenfolge, darunter die untergeordneten.
- * Ein Verweis auf ein fehlendes oder selbst untergeordnetes Konto wird ignoriert.
- */
-export function accountTree(accounts) {
-  const tops = accounts.filter((a) => !validParent(a, accounts))
-  return tops.map((account) => ({ account, children: accounts.filter((c) => validParent(c, accounts)?.id === account.id) }))
-}
-
-function validParent(a, accounts) {
-  if (!a.parentId || a.parentId === a.id) return null
-  const p = accounts.find((x) => x.id === a.parentId)
-  return p && !p.parentId ? p : null
-}
-
-/** Mögliche übergeordnete Konten für `a`: oberste Konten ohne eigene Unterkonten-Beziehung zu `a`. */
-export function parentCandidates(a, accounts) {
-  const hasChildren = accounts.some((c) => c.parentId === a.id)
-  if (hasChildren) return []
-  return accounts.filter((p) => p.id !== a.id && !p.parentId)
-}
-
-const hasOwnData = (a, balances, transactions) =>
-  balances.some((b) => b.accountId === a.id) || transactions.some((t) => t.accountId === a.id)
-
-/**
- * Salden eines Baum-Knotens.
- * - own: berechneter Saldo des Kontos selbst (z. B. «Erspartes» aus dem CSV)
- * - total: Wert, der ins Gesamttotal einfliesst – eigener Saldo, oder Summe der Unterkonten, wenn das Konto nur gruppiert
- * - unassigned: eigener Saldo minus Summe der Unterkonten (Geld, das keinem Pocket zugeordnet ist)
- */
-export function nodeBalances({ account, children }, balances, transactions) {
-  const own = currentBalance(account, balances, transactions)
-  const kids = children.map((c) => ({ account: c, balance: currentBalance(c, balances, transactions) }))
-  const childSum = round(kids.reduce((s, k) => s + k.balance.amount, 0))
-  const ownData = hasOwnData(account, balances, transactions)
-  const total = !children.length || ownData ? own.amount : childSum
-  const unassigned = children.length && ownData ? round(own.amount - childSum) : null
-  return { own, kids, childSum, total, unassigned, groupOnly: children.length > 0 && !ownData }
-}
-
-/**
  * Zustand des Saldo-Abgleichs als Badge: Differenz beim letzten Abgleich, Abgleich fällig, alles ok.
- * null, wenn das Konto noch nie abgeglichen wurde und keine Buchungen hat (oder ein Unterkonto ohne eigenen Saldo ist).
+ * null, wenn das Konto noch nie abgeglichen wurde und keine Buchungen hat.
  */
-export function reconcileStatus(account, balances, transactions, today, { child = false } = {}) {
+export function reconcileStatus(account, balances, transactions, today) {
   const checks = balanceCheck(account, balances, transactions)
   const last = checks[checks.length - 1]
   if (!last) {
-    // Unterkonten werden über das übergeordnete Konto abgeglichen – ohne eigenen Saldo keine Warnung
-    return !child && transactions.some((t) => t.accountId === account.id)
+    return transactions.some((t) => t.accountId === account.id)
       ? { tone: 'warn', label: 'Kein Saldo', title: 'Noch kein Saldo eingetragen – der berechnete Wert ist nur die Summe der Buchungen.' }
       : null
   }
