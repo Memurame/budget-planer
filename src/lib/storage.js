@@ -19,6 +19,11 @@ export async function getInfo() {
 export const chooseFile = () => api?.chooseFile()
 export const showInFolder = () => api?.showInFolder()
 export const latestRelease = async () => (api?.latestRelease ? api.latestRelease() : null)
+
+// Import-Ordner (nur Desktop)
+export const importList = async () => (api?.importList ? api.importList() : [])
+export const importRead = (name) => api.importRead(name)
+export const importRemove = (name) => api?.importRemove?.(name)
 export async function exportCsv(csv) {
   if (api) return api.exportCsv(csv)
   const a = document.createElement('a')

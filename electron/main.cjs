@@ -129,6 +129,34 @@ ipcMain.handle('budget:export-csv', async (_e, csv) => {
   return { path: res.filePath }
 })
 
+// Import-Ordner: CSV-Dateien, die z. B. vom Handy über einen synchronisierten Ordner kommen.
+// Liegt neben der Budget-Datei in «import/»; nach Import oder Abbrechen wird die Datei gelöscht.
+const importDir = () => path.join(path.dirname(dataPath()), 'import')
+const importFile = (name) => {
+  // nur einfache Dateinamen im Import-Ordner zulassen
+  if (typeof name !== 'string' || name !== path.basename(name) || !/\.csv$/i.test(name)) throw new Error('Ungültiger Dateiname')
+  return path.join(importDir(), name)
+}
+const STABLE_MS = 5000 // Datei muss so lange unverändert sein (Synchronisation abgeschlossen)
+
+ipcMain.handle('import:list', () => {
+  const dir = importDir()
+  fs.mkdirSync(dir, { recursive: true })
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && /\.csv$/i.test(e.name))
+    .map((e) => ({ name: e.name, ...fs.statSync(path.join(dir, e.name)) }))
+    .filter((f) => Date.now() - f.mtimeMs >= STABLE_MS)
+    .sort((a, b) => a.mtimeMs - b.mtimeMs)
+    .map((f) => ({ name: f.name, size: f.size, mtime: f.mtimeMs }))
+})
+
+ipcMain.handle('import:read', (_e, name) => ({ name, content: fs.readFileSync(importFile(name), 'utf8') }))
+
+ipcMain.handle('import:remove', (_e, name) => {
+  fs.rmSync(importFile(name), { force: true })
+  return { ok: true }
+})
+
 // Neueste Version auf GitHub abfragen (nur lesend, es werden keine Daten gesendet)
 const REPO = 'Memurame/budget-planer'
 ipcMain.handle('app:latest-release', async () => {

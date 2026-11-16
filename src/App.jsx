@@ -15,6 +15,7 @@ import { useTxStore } from './lib/useTx.js'
 import { actualByPosition, migrate, monthProgress } from './lib/tx.js'
 import { buildOccurrences, todayStr } from './lib/recurring.js'
 import { APP_VERSION, REPO_URL, useUpdateCheck } from './lib/version.js'
+import { useImportFolder } from './lib/importFolder.js'
 
 const NAV = [
   { id: 'overview', label: 'Übersicht', icon: Icon.home },
@@ -34,6 +35,8 @@ export default function App() {
   const [month, setMonth] = useState(monthKey())
   const theme = useTheme()
   const newRelease = useUpdateCheck()
+  // Neue CSV im Import-Ordner → Buchungen öffnen, dort erscheint die Import-Vorschau
+  const folderImport = useImportFolder(() => setView('transactions'))
   const dirty = useRef(false)
   const txStore = useTxStore()
   const { ensureYears } = txStore
@@ -172,7 +175,7 @@ export default function App() {
 
           {view === 'overview' && <Overview {...props} />}
           {view === 'budget' && <BudgetEditor {...props} />}
-          {view === 'transactions' && <Transactions {...props} />}
+          {view === 'transactions' && <Transactions {...props} folderImport={folderImport} />}
           {view === 'reserves' && <Reserves {...props} />}
           {view === 'accounts' && <Accounts {...props} />}
           {view === 'stats' && <Stats {...props} />}

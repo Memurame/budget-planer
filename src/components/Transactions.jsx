@@ -1,11 +1,11 @@
-import { Fragment, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Card, Button, IconButton, Badge, Icon, AmountInput } from './ui.jsx'
 import PositionSelect, { positionName } from './PositionSelect.jsx'
 import EntryForm from './EntryForm.jsx'
 import RecurringList from './RecurringList.jsx'
 import { fmtCHF, fmtDate, fmtPct } from '../lib/format.js'
 import { monthLabel, uid } from '../lib/calc.js'
-import { openCsv } from '../lib/storage.js'
+import { importRemove, openCsv } from '../lib/storage.js'
 import { STATUS, allocations, isAssigned, isSplit, applyRules, findRule, monthOf, parseRevolut, ruleMatches, suggestOffsets, suggestPattern, yearOf } from '../lib/tx.js'
 
 const FILTERS = [
@@ -17,7 +17,7 @@ const FILTERS = [
   ['ignored', 'Ignoriert'],
 ]
 
-export default function Transactions({ data, update, month, tx }) {
+export default function Transactions({ data, update, month, tx, folderImport }) {
   const [tab, setTab] = useState('list')
   const [status, setStatus] = useState('all')
   const [scope, setScope] = useState('month')
@@ -178,13 +178,35 @@ export default function Transactions({ data, update, month, tx }) {
   // ── Import ──────────────────────────────────────────────────
   const startImport = async () => {
     const file = await openCsv()
-    if (!file) return
+    if (file) loadImport(file)
+  }
+
+  // Datei aus dem Import-Ordner: Vorschau öffnen, sobald kein anderer Import offen ist
+  const pendingFile = folderImport?.pending
+  useEffect(() => {
+    if (pendingFile && !imp) loadImport(pendingFile)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFile, imp])
+
+  const loadImport = async (file) => {
     const res = parseRevolut(file.content)
-    if (res.error) return alert(res.error)
+    if (res.error) {
+      if (file.fromFolder) folderImport.clear()
+      return alert(`${file.name}: ${res.error}`)
+    }
     await tx.ensureYears([...res.rows.map((r) => yearOf(r.date)), ...Object.values(res.balances).map((b) => yearOf(b.date))])
     const mapping = {}
     for (const p of res.products) mapping[p] = data.importMappings[`revolut:${p}`] || (data.accounts.find((a) => a.name.toLowerCase().includes(p.toLowerCase()))?.id ?? '__new')
-    setImp({ file: file.name, ...res, mapping })
+    setImp({ file: file.name, fromFolder: !!file.fromFolder, ...res, mapping })
+  }
+
+  // Vorschau schliessen (nach Import oder Abbrechen); eine Datei aus dem Import-Ordner wird dabei gelöscht
+  const closeImport = async () => {
+    const fromFolder = imp?.fromFolder && imp.file
+    setImp(null)
+    if (!fromFolder) return
+    try { await importRemove(fromFolder) } catch (e) { alert(`${fromFolder} konnte nicht gelöscht werden: ${e}`) }
+    folderImport?.clear()
   }
 
   const preview = useMemo(() => {
@@ -228,7 +250,7 @@ export default function Transactions({ data, update, month, tx }) {
     for (const [p, b] of Object.entries(imp.balances)) {
       if (ids[p]) tx.addBalance({ id: uid(), accountId: ids[p], date: b.date, at: b.at, amount: b.amount, source: 'csv' })
     }
-    setImp(null)
+    closeImport()
     flash(`${rows.length} neue Buchungen importiert${preview.duplicates ? `, ${preview.duplicates} bereits vorhanden` : ''}.`)
   }
 
@@ -279,7 +301,7 @@ export default function Transactions({ data, update, month, tx }) {
           subtitle={`${imp.rows.length} Zeilen · ${preview.months.map((m) => monthLabel(m)).join(', ')}${imp.skipped ? ` · ${imp.skipped} nicht abgeschlossene übersprungen` : ''}`}
           actions={
             <>
-              <Button variant="ghost" onClick={() => setImp(null)}>Abbrechen</Button>
+              <Button variant="ghost" onClick={closeImport}>Abbrechen</Button>
               <Button variant="primary" onClick={doImport} disabled={!preview.fresh.length}>{preview.fresh.length} Buchungen importieren</Button>
             </>
           }

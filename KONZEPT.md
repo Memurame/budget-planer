@@ -93,6 +93,9 @@ Budget/
 ## 4. Import
 
 1. CSV wählen → Vorschau mit Anzahl neuer, bereits vorhandener und ignorierter Zeilen.
+   - **Import-Ordner** `import/` neben der Budget-Datei (z. B. per Proton Drive vom Handy befüllt): Die App prüft beim Start,
+     alle 30 s und bei Fensterfokus auf neue CSV-Dateien (mind. 5 s unverändert) und öffnet dann die Vorschau unter «Buchungen».
+     Importiert wird erst per Klick. Nach Import oder Abbrechen wird die Datei gelöscht.
 2. **Duplikaterkennung** über einen Schlüssel aus Kaufdatum, Abschlussdatum, Text, Betrag und Kontostand.
    Überlappende Zeiträume können also mehrfach importiert werden.
 3. **Automatisch ignoriert** (über Standardregeln, anpassbar):

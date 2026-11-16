@@ -12,4 +12,7 @@ contextBridge.exposeInMainWorld('budgetApi', {
   txSave: (year, data) => ipcRenderer.invoke('tx:save', year, data),
   openCsv: () => ipcRenderer.invoke('csv:open'),
   latestRelease: () => ipcRenderer.invoke('app:latest-release'),
+  importList: () => ipcRenderer.invoke('import:list'),
+  importRead: (name) => ipcRenderer.invoke('import:read', name),
+  importRemove: (name) => ipcRenderer.invoke('import:remove', name),
 })
