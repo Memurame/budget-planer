@@ -155,7 +155,6 @@ function BudgetVsActual({ data, month, tx, setView }) {
     data.groups.flatMap((g) => g.items.filter(isPeriodic)).reduce((x, it) => x + (a[it.id] || 0), 0)
   const deductions = { name: 'Sparen & Abzüge', plan: data.deductions.reduce((x, d) => x + amountAt(d, month), 0), actual: data.deductions.reduce((x, d) => x + (a[d.id] || 0), 0) }
   const all = [...rows, ...(deductions.actual ? [deductions] : [])]
-  const max = Math.max(1, ...all.map((r) => Math.max(r.plan, r.actual)))
   const pct = p.relevant ? p.confirmed / p.relevant : 0
 
   return (
@@ -169,11 +168,12 @@ function BudgetVsActual({ data, month, tx, setView }) {
         {all.map((r) => {
           const over = r.actual > r.plan + 0.005
           return (
-            <div key={r.name} className="grid grid-cols-[160px_minmax(0,1fr)_auto] items-center gap-4 text-[13px]">
+            <div key={r.name} className="grid grid-cols-[160px_minmax(0,1fr)_290px] items-center gap-4 text-[13px]">
               <span className="truncate">{r.name}</span>
-              <div className="relative h-5">
-                <div className="absolute inset-y-0 left-0 rounded bg-surface-2" style={{ width: `${(r.plan / max) * 100}%` }} title={`Budget ${fmtCHF(r.plan)}`} />
-                <div className={`absolute left-0 top-1 h-3 rounded ${over ? 'bg-bad' : 'bg-accent'}`} style={{ width: `${(r.actual / max) * 100}%` }} title={`Effektiv ${fmtCHF(r.actual)}`} />
+              {/* Ganze Breite = Budget der Zeile; über Budget → ganzer Balken rot */}
+              <div className="relative h-5" title={`Budget ${fmtCHF(r.plan)} · effektiv ${fmtCHF(r.actual)}`}>
+                <div className="absolute inset-0 rounded bg-surface-2" />
+                <div className={`absolute left-0 top-1 h-3 rounded ${over ? 'bg-bad' : 'bg-accent'}`} style={{ width: `${Math.min(1, r.plan > 0 ? r.actual / r.plan : r.actual > 0 ? 1 : 0) * 100}%` }} />
               </div>
               <span className="num whitespace-nowrap text-right">
                 {fmtCHF(r.actual)} <span className="text-ink-3">/ {fmtCHF(r.plan)}</span>

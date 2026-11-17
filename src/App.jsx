@@ -170,7 +170,7 @@ export default function App() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1280px] px-8 py-7">
+        <div className="px-8 py-7">
           <div className="mb-6 flex items-center justify-between gap-4">
             <h1 className="text-[22px] font-semibold tracking-tight">{NAV.find((n) => n.id === view)?.label}</h1>
             {view !== 'settings' && (
