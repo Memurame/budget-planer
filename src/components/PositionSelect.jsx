@@ -1,8 +1,15 @@
 import { allPositions } from '../lib/tx.js'
+import { isActiveAt } from '../lib/calc.js'
 
-/** Auswahl einer Budget-Position, gruppiert nach Budget-Gruppe. */
-export default function PositionSelect({ data, value, onChange, placeholder = '– Position wählen –', className = '', allowIgnore = false, ...props }) {
-  const positions = allPositions(data)
+/**
+ * Auswahl einer Budget-Position, gruppiert nach Budget-Gruppe.
+ * Mit `month` werden Positionen ausgeblendet, die in diesem Monat deaktiviert sind
+ * (die aktuell gewählte bleibt sichtbar, mit Hinweis).
+ */
+export default function PositionSelect({ data, value, onChange, month, placeholder = '– Position wählen –', className = '', allowIgnore = false, ...props }) {
+  const all = allPositions(data)
+  const inactive = (p) => !!month && !isActiveAt(p.item, month)
+  const positions = all.filter((p) => !inactive(p) || p.id === value)
   const groups = [...new Set(positions.map((p) => p.group))]
   return (
     <select
@@ -16,7 +23,7 @@ export default function PositionSelect({ data, value, onChange, placeholder = '�
       {groups.map((g) => (
         <optgroup key={g} label={g}>
           {positions.filter((p) => p.group === g).map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+            <option key={p.id} value={p.id}>{p.name}{inactive(p) ? ' (deaktiviert)' : ''}</option>
           ))}
         </optgroup>
       ))}

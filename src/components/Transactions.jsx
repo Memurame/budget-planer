@@ -486,7 +486,7 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
                                 {Icon.split}<span className="truncate">Aufgeteilt auf {t.splits.length} Positionen</span>
                               </button>
                             ) : (
-                              <PositionSelect data={data} value={t.positionId} onChange={(v) => assign(t, v)} allowIgnore disabled={t.status === 'confirmed'} />
+                              <PositionSelect data={data} month={monthOf(t.date)} value={t.positionId} onChange={(v) => assign(t, v)} allowIgnore disabled={t.status === 'confirmed'} />
                             )}
                           </td>
                           <td className={`num whitespace-nowrap px-2 text-right font-medium ${t.amount > 0 ? 'text-good' : ''}`}>{fmtCHF(t.amount)}</td>
@@ -638,7 +638,7 @@ function SplitEditor({ data, t, onSave, onCancel }) {
       </div>
       {rows.map((r, i) => (
         <div key={i} className="mb-1.5 flex items-center gap-2">
-          <div className="w-72 rounded-md border border-line bg-surface"><PositionSelect data={data} value={r.positionId} onChange={(v) => set(i, 'positionId', v)} /></div>
+          <div className="w-72 rounded-md border border-line bg-surface"><PositionSelect data={data} month={monthOf(t.date)} value={r.positionId} onChange={(v) => set(i, 'positionId', v)} /></div>
           <div className="w-32 rounded-md border border-line bg-surface"><AmountInput value={r.amount} onChange={(v) => set(i, 'amount', Math.abs(v))} /></div>
           {Math.abs(rest) >= 0.005 && (
             <button className="rounded px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft" onClick={() => set(i, 'amount', Math.round(((Number(r.amount) || 0) + rest) * 100) / 100)}>Rest hierher</button>

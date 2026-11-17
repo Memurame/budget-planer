@@ -197,6 +197,16 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
 6. Soll/Ist prüfen, Rücklagen-Hinweise bearbeiten.
 7. Optional **Monat abschliessen** → Buchungen dieses Monats nur noch nach Rückfrage änderbar.
 
+## 9a. Positionen deaktivieren
+
+- Monatliche Positionen in Budget-Gruppen lassen sich **ab einem Monat deaktivieren** und später wieder aktivieren
+  (z. B. ab Dez aus, ab März wieder an). Gespeichert werden nur die Wechsel: `active: { "2026-12": false, "2027-03": true }`.
+- Frühere Monate bleiben unverändert (Betrag, Soll/Ist, zugeordnete Buchungen).
+- In deaktivierten Monaten: zählt nicht ins Budget/Soll-Ist, wird beim Zuordnen von Buchungen nicht angeboten,
+  erscheint auf der Budget-Seite ausgegraut am Ende der Gruppe mit «Aktivieren».
+- Bereits zugeordnete Buchungen bleiben zugeordnet; die Position ist dort als «(deaktiviert)» markiert.
+- Nicht für periodische Positionen, jährliche Kosten, Einnahmen und Abzüge.
+
 ## 10a. Startmonat
 
 - In den Einstellungen: **Start des Budget-Planers** (Monat, `startMonth` in `budget.json`, optional).
