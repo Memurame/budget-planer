@@ -222,6 +222,16 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
 - Übersicht: Kachel «Offene Darlehen» (Restschuld, nächste Fälligkeit), Zeile im Budget, Raten bei Soll/Ist.
 - Sobald Darlehen erfasst sind, werden alle vorhandenen Buchungsjahre geladen (Einzahlung und Rückzahlungen).
 
+## 9c. Jahresübersicht
+
+- Eigener Menüpunkt unter «Budget»: Tabelle für das Kalenderjahr des gewählten Monats.
+- Zeilen: Budget-Gruppen (nur monatliche Positionen, aufklappbar bis zur Position) und separat jährliche Kosten (Rücklagen:
+  Budget = monatliche Rücklage, Ist = Zahlungen). Total Budget-Gruppen, Total Rücklagen, Gesamt.
+- Zellen: effektiv (gross, rot über / grün unter Budget) und Budget (klein).
+  Zukünftige Monate nur Budget, Monate vor dem Startmonat leer.
+- Summen: Budget, Ist und Verfügbar **bis heute** (nur vergangene Monate inkl. laufendem), Budget fürs ganze Jahr und
+  **Verfügbar Jahr** (Jahresbudget − bisher ausgegeben).
+
 ## 10a. Startmonat
 
 - In den Einstellungen: **Start des Budget-Planers** (Monat, `startMonth` in `budget.json`, optional).

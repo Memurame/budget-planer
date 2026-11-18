@@ -9,6 +9,7 @@ import Reserves from './components/Reserves.jsx'
 import Stats from './components/Stats.jsx'
 import Settings from './components/Settings.jsx'
 import Transactions from './components/Transactions.jsx'
+import YearOverview from './components/YearOverview.jsx'
 import Accounts from './components/Accounts.jsx'
 import Loans from './components/Loans.jsx'
 import { useTheme } from './lib/theme.js'
@@ -21,6 +22,7 @@ import { useImportFolder } from './lib/importFolder.js'
 const NAV = [
   { id: 'overview', label: 'Übersicht', icon: Icon.home },
   { id: 'budget', label: 'Budget', icon: Icon.list },
+  { id: 'year', label: 'Jahresübersicht', icon: Icon.table },
   { id: 'transactions', label: 'Buchungen', icon: Icon.receipt },
   { id: 'reserves', label: 'Rücklagen', icon: Icon.calendar },
   { id: 'accounts', label: 'Konten', icon: Icon.wallet },
@@ -204,6 +206,7 @@ export default function App() {
 
           {view === 'overview' && <Overview {...props} />}
           {view === 'budget' && <BudgetEditor {...props} />}
+          {view === 'year' && <YearOverview {...props} />}
           {view === 'transactions' && <Transactions {...props} folderImport={folderImport} />}
           {view === 'reserves' && <Reserves {...props} />}
           {view === 'accounts' && <Accounts {...props} />}
