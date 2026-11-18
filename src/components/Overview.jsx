@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { Card, Money, Stat, Badge, Icon } from './ui.jsx'
-import { fmtCHF, fmtCHF0, fmtPct } from '../lib/format.js'
-import { amountAt, annualForecast, isPeriodic, itemMonthly, monthLabel } from '../lib/calc.js'
+import { fmtCHF, fmtCHF0, fmtDate, fmtPct } from '../lib/format.js'
+import { amountAt, annualForecast, isPeriodic, itemMonthly, monthKey, monthLabel } from '../lib/calc.js'
+import { loanOutId, loansMonthly, loansOverview } from '../lib/loans.js'
 import { buildShares } from '../lib/shares.js'
 
 function Row({ label, value, strong, negative, muted, onClick }) {
@@ -21,6 +22,8 @@ export default function Overview({ data, summary: s, month, setView, tx }) {
   const upcoming = useMemo(() => annualForecast(data, month, 6).filter((m) => m.payout > 0), [data, month])
   const elevated = s.reserves.filter((a) => !a.group && a.rate > a.flat * 1.25 + 0.01)
   const placeholders = s.reserves.filter((a) => a.placeholder).length
+  // Kachel «Offene Darlehen» nur, wenn Darlehen erfasst sind
+  const loanInfo = (data.loans || []).length ? loansOverview(data.loans, tx.allTransactions || tx.transactions, monthKey()) : null
 
   return (
     <div className="flex flex-col gap-5">
@@ -36,7 +39,7 @@ export default function Overview({ data, summary: s, month, setView, tx }) {
         </button>
       )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className={`grid grid-cols-2 gap-4 ${loanInfo ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
         <Stat label="Einnahmen" value={fmtCHF0(s.income)} hint={`${data.income.length} Positionen`} />
         <Stat label="Budget / Ausgaben" value={fmtCHF0(s.budget)} hint={`davon Rücklagen ${fmtCHF0(s.reserves.reduce((a, r) => a + r.rate, 0))}`} />
         <Stat label="Sparbetrag" value={fmtCHF0(s.savings)} hint={`Sparquote ${fmtPct(s.savingsRate)}`} />
@@ -46,6 +49,15 @@ export default function Overview({ data, summary: s, month, setView, tx }) {
           tone={s.result >= 0 ? 'good' : 'bad'}
           hint={s.result >= 0 ? `${fmtPct(s.freeRate)} der Einnahmen` : 'Budget übersteigt Einnahmen'}
         />
+        {loanInfo && (
+          <button onClick={() => setView('loans')} className="text-left transition hover:brightness-[0.98]">
+            <Stat
+              label="Offene Darlehen"
+              value={fmtCHF0(loanInfo.outstanding)}
+              hint={loanInfo.count ? (loanInfo.nextDue ? `nächste Fälligkeit ${fmtDate(loanInfo.nextDue)}` : `${loanInfo.count} offen`) : 'alles zurückbezahlt'}
+            />
+          </button>
+        )}
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -60,6 +72,7 @@ export default function Overview({ data, summary: s, month, setView, tx }) {
             </span>
             <span className="num">{fmtCHF(s.annual)}</span>
           </div>
+          {s.loans.total > 0 && <Row label="Darlehen (Raten und Rücklagen)" value={s.loans.total} onClick={() => setView('loans')} />}
           <Row label="Total Budget" value={s.budget} strong />
         </Card>
 
@@ -154,7 +167,10 @@ function BudgetVsActual({ data, month, tx, setView }) {
     data.annual.reduce((x, it) => x + (a[it.id] || 0), 0) +
     data.groups.flatMap((g) => g.items.filter(isPeriodic)).reduce((x, it) => x + (a[it.id] || 0), 0)
   const deductions = { name: 'Sparen & Abzüge', plan: data.deductions.reduce((x, d) => x + amountAt(d, month), 0), actual: data.deductions.reduce((x, d) => x + (a[d.id] || 0), 0) }
-  const all = [...rows, ...(deductions.actual ? [deductions] : [])]
+  // Darlehen: geplante Raten vs. effektive Rückzahlungen (Rücklagen für einmalige Rückzahlungen wie jährliche Kosten separat)
+  const loanList = data.loans || []
+  const loanRow = { name: 'Darlehen (Raten)', plan: loansMonthly(loanList, month, tx.allTransactions || tx.transactions).rates, actual: loanList.reduce((x, l) => x + (a[loanOutId(l)] || 0), 0) }
+  const all = [...rows, ...(loanRow.plan || loanRow.actual ? [loanRow] : []), ...(deductions.actual ? [deductions] : [])]
   const pct = p.relevant ? p.confirmed / p.relevant : 0
 
   return (

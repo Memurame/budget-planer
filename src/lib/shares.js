@@ -4,7 +4,8 @@
  * Mehr als 5 Budget-Gruppen werden zu "Übrige Gruppen" zusammengefasst.
  */
 export function buildShares(s) {
-  const MAX_GROUPS = 4
+  // mit Darlehen eine Gruppe weniger, damit höchstens 8 Farben gebraucht werden
+  const MAX_GROUPS = s.loans?.total > 0 ? 3 : 4
   const groups = s.groups.slice(0, MAX_GROUPS).map((g) => ({ key: g.id, name: g.name, value: g.total }))
   const rest = s.groups.slice(MAX_GROUPS)
   if (rest.length) groups.push({ key: 'rest', name: 'Übrige Gruppen', value: rest.reduce((a, g) => a + g.total, 0) })
@@ -15,6 +16,7 @@ export function buildShares(s) {
   const list = [
     ...groups,
     { key: 'annual', name: 'Rücklagen jährl. Kosten', value: s.annual },
+    ...(s.loans?.total > 0 ? [{ key: 'loans', name: 'Darlehen', value: s.loans.total }] : []),
     { key: 'saving', name: 'Sparbetrag', value: saving },
     { key: 'other', name: 'Weitere Abzüge', value: other },
   ].slice(0, 8)

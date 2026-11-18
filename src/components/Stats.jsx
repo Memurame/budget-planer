@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import { Card, Button, IconButton, Stat, Icon } from './ui.jsx'
 import { fmtCHF, fmtCHF0, fmtPct } from '../lib/format.js'
-import { actualByPosition, counts, monthOf } from '../lib/tx.js'
+import { actualByPosition, allocations, counts, monthOf } from '../lib/tx.js'
+import { isLoanIn, loansMonthly } from '../lib/loans.js'
 import { isPeriodic, itemMonthly } from '../lib/calc.js'
 import { addMonths, amountAt, flatRate, itemMonthlyFlat, monthKey, monthLabel, summary, uid } from '../lib/calc.js'
 import { baseOptions, barStyle, readColors } from '../lib/charts.js'
@@ -15,7 +16,8 @@ export function yearlyTotals(d, key = monthKey()) {
   const annual = d.annual.reduce((s, a) => s + flatRate(a), 0)
   const deductions = sum(d.deductions)
   const savings = sum(d.deductions.filter((x) => x.isSaving))
-  const budget = groups.reduce((s, g) => s + g.total, 0) + annual
+  const loans = loansMonthly(d.loans || [], key).total // Darlehen nach Plan (Versionen haben keine)
+  const budget = groups.reduce((s, g) => s + g.total, 0) + annual + loans
   return { income, groups, annual, deductions, savings, budget, result: income - budget - deductions }
 }
 
@@ -195,11 +197,16 @@ function Versions({ data, update, replaceData, theme, current, month }) {
 function History({ data, month, theme, tx }) {
   const rows = useMemo(() => {
     const spent = {}
-    for (const t of tx.transactions) if (counts(t)) spent[monthOf(t.date)] = (spent[monthOf(t.date)] || 0) - t.amount
+    // Darlehens-Auszahlungen sind keine (negativen) Ausgaben
+    for (const t of tx.transactions) {
+      if (!counts(t)) continue
+      const v = allocations(t).filter((x) => !isLoanIn(x.positionId)).reduce((s, x) => s + x.amount, 0)
+      if (v) spent[monthOf(t.date)] = (spent[monthOf(t.date)] || 0) - v
+    }
     // Monate vor dem Start des Budget-Planers bleiben leer
     const before = (m) => !!tx.startMonth && m < tx.startMonth
-    return Array.from({ length: 12 }, (_, i) => addMonths(month, i - 11)).map((m) => ({ m, s: before(m) ? null : summary(data, m), spent: m in spent ? spent[m] : null }))
-  }, [data, month, tx.transactions, tx.startMonth])
+    return Array.from({ length: 12 }, (_, i) => addMonths(month, i - 11)).map((m) => ({ m, s: before(m) ? null : summary(data, m, tx.allTransactions || tx.transactions), spent: m in spent ? spent[m] : null }))
+  }, [data, month, tx.transactions, tx.allTransactions, tx.startMonth])
   const hasSpent = rows.some((r) => r.spent !== null)
   const c = readColors()
   const opts = baseOptions(theme.resolved, { legend: true })

@@ -1,5 +1,6 @@
 // Buchungen: CSV-Import, Regeln, Ist-Werte, Salden.
 import { addMonths, isPeriodic, uid } from './calc.js'
+import { loanInId, loanOutId } from './loans.js'
 
 export const STATUS = {
   open: { label: 'Offen', tone: 'warn' },
@@ -29,6 +30,7 @@ export function migrate(data) {
     importMappings: data.importMappings || {},
     pendingRules: data.pendingRules || [],
     recurring: data.recurring || [],
+    loans: data.loans || [],
   }
 }
 
@@ -44,6 +46,11 @@ export function allPositions(data) {
     ...data.groups.flatMap((g) => g.items.map((it) => ({ id: it.id, name: it.name, group: g.name, periodic: isPeriodic(it), item: it }))),
     ...data.annual.map((a) => ({ id: a.id, name: a.name, group: 'Jährliche Kosten', periodic: true, item: a })),
     ...data.deductions.map((d) => ({ id: d.id, name: d.name, group: 'Sparen & Abzüge', periodic: false, item: d })),
+    // Darlehen: je eine Pseudo-Position für Auszahlung und Rückzahlung (kein Budget-Betrag)
+    ...(data.loans || []).flatMap((l) => [
+      { id: loanInId(l), name: `${l.name} – erhalten`, group: 'Darlehen', periodic: false, loan: true, item: { amount: 0 } },
+      { id: loanOutId(l), name: `${l.name} – Rückzahlung`, group: 'Darlehen', periodic: false, loan: true, item: { amount: 0 } },
+    ]),
   ]
 }
 

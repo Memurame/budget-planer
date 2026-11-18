@@ -207,6 +207,21 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
 - Bereits zugeordnete Buchungen bleiben zugeordnet; die Position ist dort als «(deaktiviert)» markiert.
 - Nicht für periodische Positionen, jährliche Kosten, Einnahmen und Abzüge.
 
+## 9b. Darlehen (erhalten)
+
+- Eigener Menüpunkt «Darlehen»; in `budget.json` unter `loans`:
+  `{ id, name, amount, createdAt, interestRate, plan: 'rate' | 'due' | 'free', rate, rateStart, dueDate, note }`.
+- Datum und Konto der Einzahlung kommen aus der ersten als «… – erhalten» verknüpften Buchung (bis dahin: Erfassungsdatum).
+- Buchungen werden über zwei Pseudo-Positionen pro Darlehen verknüpft: «… – erhalten» (`loan-in:<id>`, zählt nicht als
+  Einnahme/Ausgabe) und «… – Rückzahlung» (`loan-out:<id>`, senkt die Restschuld).
+- Rückzahlung:
+  - **Raten**: Rate ab erstem Monat im Budget, bis laut Plan bzw. laut Buchungen alles zurückbezahlt ist (letzte Rate = Rest).
+  - **Einmalig bis Datum**: Betrag gleichmässig als Rücklage vom Monat der Einzahlung (bzw. der Erfassung) bis zum Fälligkeitsmonat (inkl.).
+  - **Ohne festen Plan**: nichts im Budget, nur Restschuld.
+- Zins: wird nur vermerkt, nicht berechnet.
+- Übersicht: Kachel «Offene Darlehen» (Restschuld, nächste Fälligkeit), Zeile im Budget, Raten bei Soll/Ist.
+- Sobald Darlehen erfasst sind, werden alle vorhandenen Buchungsjahre geladen (Einzahlung und Rückzahlungen).
+
 ## 10a. Startmonat
 
 - In den Einstellungen: **Start des Budget-Planers** (Monat, `startMonth` in `budget.json`, optional).

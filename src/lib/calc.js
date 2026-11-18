@@ -1,4 +1,5 @@
 // Monate werden als "YYYY-MM" geführt.
+import { loansMonthly } from './loans.js'
 export const monthKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 
@@ -229,7 +230,8 @@ export function makeMonthly(it) {
   delete it.placeholder
 }
 
-export function summary(data, key = monthKey()) {
+/** Monatsrechnung. Mit `transactions` werden bereits zurückbezahlte Darlehen nicht mehr budgetiert. */
+export function summary(data, key = monthKey(), transactions) {
   const income = sumAt(data.income, key)
   const groups = data.groups.map((g) => ({ id: g.id, name: g.name, total: sum(g.items, (it) => itemMonthly(it, key)) }))
   const annualRates = data.annual.map((a) => annualRate(a, key))
@@ -237,7 +239,9 @@ export function summary(data, key = monthKey()) {
   const annualFlat = sum(data.annual, flatRate)
   // Alle Rücklage-Positionen (inkl. periodischer Gruppen-Positionen), z. B. für Warnungen
   const reserves = reserveItems(data).map((x) => ({ ...x.item, group: x.group, rate: annualRate(x.item, key), flat: flatRate(x.item) }))
-  const budget = sum(groups, (g) => g.total) + annual
+  // Darlehen: Raten und Rücklagen für einmalige Rückzahlungen gehören zum Budget
+  const loans = loansMonthly(data.loans || [], key, transactions)
+  const budget = sum(groups, (g) => g.total) + annual + loans.total
   const deductions = data.deductions.map((d) => ({ ...d, amount: amountAt(d, key) }))
   const deductionsTotal = sum(deductions)
   const result = income - budget - deductionsTotal
@@ -248,6 +252,7 @@ export function summary(data, key = monthKey()) {
     groups,
     annual,
     annualFlat,
+    loans,
     reserves,
     budget,
     deductions,

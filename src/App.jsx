@@ -10,6 +10,7 @@ import Stats from './components/Stats.jsx'
 import Settings from './components/Settings.jsx'
 import Transactions from './components/Transactions.jsx'
 import Accounts from './components/Accounts.jsx'
+import Loans from './components/Loans.jsx'
 import { useTheme } from './lib/theme.js'
 import { useTxStore } from './lib/useTx.js'
 import { actualByPosition, migrate, monthOf, monthProgress } from './lib/tx.js'
@@ -23,6 +24,7 @@ const NAV = [
   { id: 'transactions', label: 'Buchungen', icon: Icon.receipt },
   { id: 'reserves', label: 'Rücklagen', icon: Icon.calendar },
   { id: 'accounts', label: 'Konten', icon: Icon.wallet },
+  { id: 'loans', label: 'Darlehen', icon: Icon.loan },
   { id: 'stats', label: 'Statistik', icon: Icon.chart },
   { id: 'settings', label: 'Einstellungen', icon: Icon.gear },
 ]
@@ -45,6 +47,13 @@ export default function App() {
   useEffect(() => {
     ensureYears([Number(month.slice(0, 4)), Number(addMonths(month, -11).slice(0, 4))])
   }, [month, ensureYears])
+
+  // Darlehen: alle vorhandenen Buchungsjahre laden – die Einzahlung und Rückzahlungen können in jedem Jahr liegen
+  const hasLoans = (data?.loans || []).length > 0
+  const { knownYears } = txStore
+  useEffect(() => {
+    if (hasLoans && knownYears.length) ensureYears(knownYears)
+  }, [hasLoans, knownYears, ensureYears])
 
   useEffect(() => { localStorage.setItem('view', view) }, [view])
 
@@ -99,7 +108,8 @@ export default function App() {
     if (startMonth && month < startMonth) setMonth(startMonth)
   }, [startMonth, month])
 
-  const s = useMemo(() => (data ? summary(data, month) : null), [data, month])
+  // Mit allen Buchungen: bereits zurückbezahlte Darlehen werden nicht mehr budgetiert
+  const s = useMemo(() => (data ? summary(data, month, txStore.transactions) : null), [data, month, txStore.transactions])
   const tx = useMemo(() => {
     // Buchungen vor dem Startmonat werden ausgeblendet (nicht gelöscht). Für Kontosalden und
     // Saldo-Abgleich sowie die Duplikaterkennung beim Import bleiben alle unter `allTransactions`.
@@ -197,6 +207,7 @@ export default function App() {
           {view === 'transactions' && <Transactions {...props} folderImport={folderImport} />}
           {view === 'reserves' && <Reserves {...props} />}
           {view === 'accounts' && <Accounts {...props} />}
+          {view === 'loans' && <Loans {...props} />}
           {view === 'stats' && <Stats {...props} />}
           {view === 'settings' && <Settings {...props} />}
         </div>

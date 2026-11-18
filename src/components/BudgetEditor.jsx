@@ -276,6 +276,22 @@ export default function BudgetEditor({ data, update, summary: s, month, setView,
             <Money v={s.annual} className="font-semibold" />
           </div>
         </Card>
+
+        {(data.loans || []).length > 0 && (
+          <Card
+            title="Darlehen"
+            subtitle="Raten und Rücklagen für Rückzahlungen – werden unter Darlehen verwaltet"
+            actions={<Button onClick={() => setView('loans')}>Zu den Darlehen →</Button>}
+          >
+            <div className="flex items-baseline justify-between text-[14px]">
+              <span className="text-ink-2">
+                {data.loans.length} Darlehen · im Budget dieses Monats
+                {s.loans.rates > 0 && s.loans.reserve > 0 && ` (Raten ${fmtCHF(s.loans.rates)}, Rücklage ${fmtCHF(s.loans.reserve)})`}
+              </span>
+              <Money v={s.loans.total} className="font-semibold" />
+            </div>
+          </Card>
+        )}
       </div>
 
       <div className="order-first grid items-start gap-5 lg:grid-cols-3 2xl:order-none 2xl:flex 2xl:flex-col 2xl:items-stretch">
