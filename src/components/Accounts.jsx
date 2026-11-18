@@ -19,12 +19,12 @@ export default function Accounts({ data, update, month, tx, setView }) {
 
   const positions = useMemo(() => allPositions(data), [data])
   const balances = useMemo(
-    () => Object.fromEntries(data.accounts.map((a) => [a.id, currentBalance(a, tx.balances, tx.transactions)])),
-    [data.accounts, tx.balances, tx.transactions],
+    () => Object.fromEntries(data.accounts.map((a) => [a.id, currentBalance(a, tx.balances, tx.allTransactions)])),
+    [data.accounts, tx.balances, tx.allTransactions],
   )
   const today = todayStr()
   const total = Object.values(balances).reduce((s, b) => s + b.amount, 0)
-  const statuses = Object.fromEntries(data.accounts.map((a) => [a.id, reconcileStatus(a, tx.balances, tx.transactions, today)]))
+  const statuses = Object.fromEntries(data.accounts.map((a) => [a.id, reconcileStatus(a, tx.balances, tx.allTransactions, today)]))
   const attention = Object.values(statuses).filter((s) => s && s.tone !== 'good').length
   const withoutAccount = data.accounts.length ? tx.transactions.filter((t) => !t.accountId && monthOf(t.date) === month).length : 0
 
@@ -177,7 +177,7 @@ function AccountDetails({ account: a, funded, plan, actual, balance, data, updat
 
 function Reconcile({ account: a, balance, month, tx }) {
   const [entry, setEntry] = useState({ date: lastDayOf(month), amount: 0 })
-  const checks = balanceCheck(a, tx.balances, tx.transactions).slice().reverse()
+  const checks = balanceCheck(a, tx.balances, tx.allTransactions).slice().reverse()
 
   const addBalance = async () => {
     await tx.ensureYears([yearOf(entry.date)])
@@ -305,7 +305,7 @@ function Funding({ account: a, funded, plan, actual, data, set }) {
 
 function AccountSettings({ account: a, update, set, tx }) {
   const remove = async () => {
-    const n = tx.transactions.filter((t) => t.accountId === a.id).length
+    const n = tx.allTransactions.filter((t) => t.accountId === a.id).length
     const ok = await askDelete({ title: `Konto «${a.name}» löschen?`, message: n ? `${n} Buchungen bleiben erhalten, sind danach aber keinem Konto mehr zugeordnet.` : 'Das Konto wird entfernt.' })
     if (ok) update((d) => { d.accounts = d.accounts.filter((x) => x.id !== a.id) })
   }

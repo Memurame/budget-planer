@@ -211,19 +211,24 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
 
   const preview = useMemo(() => {
     if (!imp) return null
-    const existing = new Set(tx.transactions.map((t) => t.id))
-    const fresh = imp.rows.filter((r) => !existing.has(r.id) && !tx.deletedIds.has(r.id))
-    const deleted = imp.rows.filter((r) => !existing.has(r.id) && tx.deletedIds.has(r.id)).length
+    // Duplikate gegen alle Buchungen prüfen, auch die vor dem Startmonat ausgeblendeten
+    const existing = new Set(tx.allTransactions.map((t) => t.id))
+    // Zeilen vor dem Start des Budget-Planers werden übersprungen
+    const isBeforeStart = (r) => !!tx.startMonth && monthOf(r.date) < tx.startMonth
+    const beforeStart = imp.rows.filter(isBeforeStart).length
+    const rows = imp.rows.filter((r) => !isBeforeStart(r))
+    const fresh = rows.filter((r) => !existing.has(r.id) && !tx.deletedIds.has(r.id))
+    const deleted = rows.filter((r) => !existing.has(r.id) && tx.deletedIds.has(r.id)).length
     let ignored = 0, auto = 0
     for (const r of fresh) {
       const rule = findRule(data.rules, r.text)
       if (rule?.action === 'ignore') ignored++
       else if (rule) auto++
     }
-    const months = [...new Set(imp.rows.map((r) => monthOf(r.date)))].sort()
+    const months = [...new Set(rows.map((r) => monthOf(r.date)))].sort()
     const closedHit = months.filter((m) => tx.isClosed(m))
-    return { fresh, deleted, duplicates: imp.rows.length - fresh.length - deleted, ignored, auto, open: fresh.length - ignored - auto, months, closedHit }
-  }, [imp, tx.transactions, data.rules])
+    return { fresh, deleted, beforeStart, duplicates: rows.length - fresh.length - deleted, ignored, auto, open: fresh.length - ignored - auto, months, closedHit }
+  }, [imp, tx.allTransactions, tx.startMonth, data.rules])
 
   const doImport = () => {
     const ids = {}
@@ -298,7 +303,7 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
       {imp && preview && (
         <Card
           title={`Import: ${imp.file}`}
-          subtitle={`${imp.rows.length} Zeilen · ${preview.months.map((m) => monthLabel(m)).join(', ')}${imp.skipped ? ` · ${imp.skipped} nicht abgeschlossene übersprungen` : ''}`}
+          subtitle={`${imp.rows.length} Zeilen · ${preview.months.map((m) => monthLabel(m)).join(', ')}${imp.skipped ? ` · ${imp.skipped} nicht abgeschlossene übersprungen` : ''}${preview.beforeStart ? ` · ${preview.beforeStart} vor dem Start (${monthLabel(tx.startMonth)}) übersprungen` : ''}`}
           actions={
             <>
               <Button variant="ghost" onClick={closeImport}>Abbrechen</Button>
@@ -481,7 +486,7 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
                                 {Icon.split}<span className="truncate">Aufgeteilt auf {t.splits.length} Positionen</span>
                               </button>
                             ) : (
-                              <PositionSelect data={data} value={t.positionId} onChange={(v) => assign(t, v)} allowIgnore disabled={t.status === 'confirmed'} />
+                              <PositionSelect data={data} month={monthOf(t.date)} value={t.positionId} onChange={(v) => assign(t, v)} allowIgnore disabled={t.status === 'confirmed'} />
                             )}
                           </td>
                           <td className={`num whitespace-nowrap px-2 text-right font-medium ${t.amount > 0 ? 'text-good' : ''}`}>{fmtCHF(t.amount)}</td>
@@ -633,7 +638,7 @@ function SplitEditor({ data, t, onSave, onCancel }) {
       </div>
       {rows.map((r, i) => (
         <div key={i} className="mb-1.5 flex items-center gap-2">
-          <div className="w-72 rounded-md border border-line bg-surface"><PositionSelect data={data} value={r.positionId} onChange={(v) => set(i, 'positionId', v)} /></div>
+          <div className="w-72 rounded-md border border-line bg-surface"><PositionSelect data={data} month={monthOf(t.date)} value={r.positionId} onChange={(v) => set(i, 'positionId', v)} /></div>
           <div className="w-32 rounded-md border border-line bg-surface"><AmountInput value={r.amount} onChange={(v) => set(i, 'amount', Math.abs(v))} /></div>
           {Math.abs(rest) >= 0.005 && (
             <button className="rounded px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft" onClick={() => set(i, 'amount', Math.round(((Number(r.amount) || 0) + rest) * 100) / 100)}>Rest hierher</button>

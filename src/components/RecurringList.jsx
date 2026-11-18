@@ -48,7 +48,7 @@ export default function RecurringList({ data, update, tx, onAdd }) {
               {list.map((t) => {
                 const next = t.paused ? null : nextOccurrence(t, today)
                 const nextKey = next ? next.slice(0, 7) : monthKey()
-                const generated = tx.transactions.filter((x) => x.recurringId === t.id && (t.kind !== 'transfer' || x.amount < 0)).length
+                const generated = tx.allTransactions.filter((x) => x.recurringId === t.id && (t.kind !== 'transfer' || x.amount < 0)).length
                 return (
                   <tr key={t.id} className={`group border-b border-line last:border-b-0 ${t.paused ? 'text-ink-3' : ''}`}>
                     <td className="px-2 py-1.5">

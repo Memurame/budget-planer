@@ -171,7 +171,7 @@ export default function EntryForm({ data, update, tx, month, onDone, onCancel })
             </Field>
             <Field label="Position" className="md:col-span-6">
               <div className={`${inputCls} flex items-center px-1`}>
-                <PositionSelect data={data} value={f.positionId} onChange={(v) => set('positionId', v)} />
+                <PositionSelect data={data} month={f.date ? f.date.slice(0, 7) : undefined} value={f.positionId} onChange={(v) => set('positionId', v)} />
               </div>
             </Field>
           </>

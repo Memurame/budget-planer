@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Card, Button, IconButton, AmountInput, TextInput, Money, Icon } from './ui.jsx'
-import { isBudgetMode, uid, isPeriodic, itemMonthly, itemMonthlyFlat, flatRate, simulateAnnual, makePeriodic, makeMonthly, amountAt, setAmountAt, changedIn, monthLabel, addMonths } from '../lib/calc.js'
+import { isBudgetMode, uid, isPeriodic, itemMonthly, itemMonthlyFlat, flatRate, simulateAnnual, makePeriodic, makeMonthly, amountAt, setAmountAt, changedIn, monthLabel, addMonths, isActiveAt, setActiveAt, activeChangedIn, inactiveSince } from '../lib/calc.js'
 
 /** Betragsfeld für monatsabhängige Werte. Ein Punkt zeigt an, dass der Betrag in diesem Monat geändert wurde. */
 function MonthAmount({ item, month, onUpdate, className = '' }) {
@@ -72,7 +72,8 @@ function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLa
         <div className="px-2 text-right">Effektiv</div>
         <div />
       </div>
-      {items.map((it, idx) => {
+      {/* Aktive Positionen in ihrer Reihenfolge, deaktivierte ausgegraut am Ende der Gruppe */}
+      {items.map((it, idx) => [it, idx]).filter(([it]) => isActiveAt(it, month)).map(([it, idx]) => {
         const periodic = isPeriodic(it)
         const r = periodic ? simulateAnnual(it, month, 1)[0] : null
         const elevated = periodic && r.rate > flatRate(it) * 1.25 + 0.01
@@ -100,11 +101,20 @@ function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLa
               </div>
               <ActualCell actual={actual[it.id]} planned={periodic ? r.rate : amountAt(it, month)} periodic={periodic} hasTx={hasTx} />
               <div className="flex justify-end opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+                {!periodic && (
+                  <IconButton title={`Ab ${monthLabel(month)} deaktivieren – frühere Monate bleiben unverändert`} onClick={() => onUpdate((list) => setActiveAt(list[idx], month, false))}>{Icon.pause}</IconButton>
+                )}
                 <IconButton title="Nach oben" onClick={() => onUpdate((list) => move(list, idx, -1))}>{Icon.up}</IconButton>
                 <IconButton title="Nach unten" onClick={() => onUpdate((list) => move(list, idx, 1))}>{Icon.down}</IconButton>
                 <IconButton title="Löschen" className="hover:text-bad" onClick={() => onDelete(it)}>{Icon.trash}</IconButton>
               </div>
             </div>
+            {!periodic && activeChangedIn(it, month) && (
+              <div className="pb-1.5 pl-2 text-[12px] text-ink-3">
+                Ab {monthLabel(month)} wieder aktiv ·{' '}
+                <button className="text-accent hover:underline" onClick={() => onUpdate((list) => setActiveAt(list[idx], month, false))}>rückgängig</button>
+              </div>
+            )}
             {periodic && isBudgetMode(it) && (
               <div className="pb-1.5 pl-2 text-[12px] text-ink-3">Jahresbudget (laufende Ausgaben) – Stand und Ausgaben unter Rücklagen</div>
             )}
@@ -127,6 +137,37 @@ function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLa
           </div>
         )
       })}
+      {items.map((it, idx) => [it, idx]).filter(([it]) => !isActiveAt(it, month)).map(([it, idx]) => (
+        <div key={it.id} className="group border-b border-line py-0.5 text-[14px]">
+          <div className={`grid ${COLS} items-center gap-2`}>
+            <div className="truncate px-2 py-1 text-ink-3 line-through decoration-ink-3/50">{it.name}</div>
+            <div className="px-1 text-[12px] text-ink-3" title={`Deaktiviert seit ${monthLabel(inactiveSince(it, month))}`}>deaktiviert</div>
+            <div className="num px-2 text-right text-ink-3">{fmtCHF(amountAt(it, month))}</div>
+            <div className="num px-2 text-right text-ink-3">{fmtCHF(0)}</div>
+            <ActualCell actual={actual[it.id]} planned={0} periodic={false} hasTx={hasTx && !!actual[it.id]} />
+            <div className="flex justify-end">
+              <button
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft"
+                title={`Ab ${monthLabel(month)} wieder aktivieren`}
+                onClick={() => onUpdate((list) => setActiveAt(list[idx], month, true))}
+              >
+                {Icon.play} Aktivieren
+              </button>
+            </div>
+          </div>
+          <div className="pb-1.5 pl-2 text-[12px] text-ink-3">
+            {activeChangedIn(it, month) ? (
+              <>
+                Ab {monthLabel(month)} deaktiviert ·{' '}
+                <button className="text-accent hover:underline" onClick={() => onUpdate((list) => setActiveAt(list[idx], month, true))}>rückgängig</button>
+              </>
+            ) : (
+              `Deaktiviert seit ${monthLabel(inactiveSince(it, month))} – zählt nicht ins Budget`
+            )}
+            {actual[it.id] ? <span className="text-warn"> · {fmtCHF(actual[it.id])} trotzdem zugeordnet</span> : null}
+          </div>
+        </div>
+      ))}
       <div className={`grid ${COLS} items-center gap-2 pt-2.5 text-[14px] font-semibold`}>
         <div className="col-span-3 flex items-center px-2">
           <Button variant="ghost" className="-ml-3 whitespace-nowrap font-normal" onClick={() => onUpdate((list) => { list.push({ id: uid(), name: "Neue Position", amount: 0 }) })}>
@@ -235,6 +276,22 @@ export default function BudgetEditor({ data, update, summary: s, month, setView,
             <Money v={s.annual} className="font-semibold" />
           </div>
         </Card>
+
+        {(data.loans || []).length > 0 && (
+          <Card
+            title="Darlehen"
+            subtitle="Raten und Rücklagen für Rückzahlungen – werden unter Darlehen verwaltet"
+            actions={<Button onClick={() => setView('loans')}>Zu den Darlehen →</Button>}
+          >
+            <div className="flex items-baseline justify-between text-[14px]">
+              <span className="text-ink-2">
+                {data.loans.length} Darlehen · im Budget dieses Monats
+                {s.loans.rates > 0 && s.loans.reserve > 0 && ` (Raten ${fmtCHF(s.loans.rates)}, Rücklage ${fmtCHF(s.loans.reserve)})`}
+              </span>
+              <Money v={s.loans.total} className="font-semibold" />
+            </div>
+          </Card>
+        )}
       </div>
 
       <div className="order-first grid items-start gap-5 lg:grid-cols-3 2xl:order-none 2xl:flex 2xl:flex-col 2xl:items-stretch">

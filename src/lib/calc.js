@@ -1,4 +1,5 @@
 // Monate werden als "YYYY-MM" geführt.
+import { loansMonthly } from './loans.js'
 export const monthKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 
@@ -136,14 +137,51 @@ export const changedIn = (it, key) => (it.changes && key in it.changes ? amountA
 
 const sumAt = (arr, key) => arr.reduce((s, x) => s + amountAt(x, key), 0)
 
+/**
+ * Aktiv/deaktiviert pro Monat (nur monatliche Gruppen-Positionen): `active` hält die Wechsel,
+ * z. B. { "2026-12": false, "2027-03": true }. Ein Zustand gilt ab seinem Monat bis zum nächsten Wechsel.
+ * Ohne Eintrag ist eine Position aktiv.
+ */
+export function isActiveAt(it, key) {
+  if (isPeriodic(it)) return true
+  let best = null
+  if (it.active) for (const k in it.active) if (k <= key && (best === null || k > best)) best = k
+  return best ? it.active[best] !== false : true
+}
+
+/**
+ * Ab Monat `key` aktivieren/deaktivieren. Frühere Monate bleiben unverändert; spätere Wechsel
+ * (z. B. «ab März wieder aktiv») bleiben erhalten – wie bei Betragsänderungen.
+ */
+export function setActiveAt(it, key, value) {
+  it.active = { ...(it.active || {}) }
+  delete it.active[key]
+  // Nur speichern, wenn es gegenüber dem Vormonat ein Wechsel ist
+  if (isActiveAt(it, key) !== !!value) it.active[key] = !!value
+  if (Object.keys(it.active).length === 0) delete it.active
+}
+
+/** Wechselt der Zustand genau in diesem Monat (gegenüber dem Vormonat)? */
+export function activeChangedIn(it, key) {
+  if (!it.active || !(key in it.active)) return false
+  return isActiveAt(it, key) !== isActiveAt(it, addMonths(key, -1))
+}
+
+/** Seit welchem Monat ist die Position (in `key`) deaktiviert? */
+export function inactiveSince(it, key) {
+  let best = null
+  for (const k in it.active || {}) if (k <= key && it.active[k] === false && (best === null || k > best)) best = k
+  return best
+}
+
 /** Gruppen-Position mit nicht-monatlicher Abrechnung (vierteljährlich, jährlich …)? */
 export const isPeriodic = (it) => (Number(it.intervalMonths) || 1) > 1
 
 /** Monatlicher Betrag einer Gruppen-Position: fix, oder Rücklage-Rate bei periodischer Abrechnung. */
-export const itemMonthly = (it, key) => (isPeriodic(it) ? annualRate(it, key) : amountAt(it, key))
+export const itemMonthly = (it, key) => (isPeriodic(it) ? annualRate(it, key) : isActiveAt(it, key) ? amountAt(it, key) : 0)
 
 /** Durchschnittlicher Monatsbetrag (für Jahresvergleiche). */
-export const itemMonthlyFlat = (it, key = monthKey()) => (isPeriodic(it) ? flatRate(it) : amountAt(it, key))
+export const itemMonthlyFlat = (it, key = monthKey()) => (isPeriodic(it) ? flatRate(it) : isActiveAt(it, key) ? amountAt(it, key) : 0)
 
 /**
  * Alle Positionen, für die angespart wird: die Liste "Jährliche Kosten"
@@ -174,6 +212,7 @@ export function makePeriodic(it, intervalMonths, key = monthKey()) {
     // Bisheriger Monatsbetrag → Betrag pro Abrechnung
     it.amount = Math.round(amountAt(it, key) * intervalMonths * 100) / 100
     delete it.changes // periodische Beträge gelten für alle Monate
+    delete it.active // Aktivieren/Deaktivieren gibt es nur bei monatlichen Positionen
     it.dueDate = `${addMonths(key, intervalMonths)}-01`
     it.placeholder = true
   }
@@ -191,7 +230,8 @@ export function makeMonthly(it) {
   delete it.placeholder
 }
 
-export function summary(data, key = monthKey()) {
+/** Monatsrechnung. Mit `transactions` werden bereits zurückbezahlte Darlehen nicht mehr budgetiert. */
+export function summary(data, key = monthKey(), transactions) {
   const income = sumAt(data.income, key)
   const groups = data.groups.map((g) => ({ id: g.id, name: g.name, total: sum(g.items, (it) => itemMonthly(it, key)) }))
   const annualRates = data.annual.map((a) => annualRate(a, key))
@@ -199,7 +239,9 @@ export function summary(data, key = monthKey()) {
   const annualFlat = sum(data.annual, flatRate)
   // Alle Rücklage-Positionen (inkl. periodischer Gruppen-Positionen), z. B. für Warnungen
   const reserves = reserveItems(data).map((x) => ({ ...x.item, group: x.group, rate: annualRate(x.item, key), flat: flatRate(x.item) }))
-  const budget = sum(groups, (g) => g.total) + annual
+  // Darlehen: Raten und Rücklagen für einmalige Rückzahlungen gehören zum Budget
+  const loans = loansMonthly(data.loans || [], key, transactions)
+  const budget = sum(groups, (g) => g.total) + annual + loans.total
   const deductions = data.deductions.map((d) => ({ ...d, amount: amountAt(d, key) }))
   const deductionsTotal = sum(deductions)
   const result = income - budget - deductionsTotal
@@ -210,6 +252,7 @@ export function summary(data, key = monthKey()) {
     groups,
     annual,
     annualFlat,
+    loans,
     reserves,
     budget,
     deductions,

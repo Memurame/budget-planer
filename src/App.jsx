@@ -9,10 +9,12 @@ import Reserves from './components/Reserves.jsx'
 import Stats from './components/Stats.jsx'
 import Settings from './components/Settings.jsx'
 import Transactions from './components/Transactions.jsx'
+import YearOverview from './components/YearOverview.jsx'
 import Accounts from './components/Accounts.jsx'
+import Loans from './components/Loans.jsx'
 import { useTheme } from './lib/theme.js'
 import { useTxStore } from './lib/useTx.js'
-import { actualByPosition, migrate, monthProgress } from './lib/tx.js'
+import { actualByPosition, migrate, monthOf, monthProgress } from './lib/tx.js'
 import { buildOccurrences, todayStr } from './lib/recurring.js'
 import { APP_VERSION, REPO_URL, useUpdateCheck } from './lib/version.js'
 import { useImportFolder } from './lib/importFolder.js'
@@ -20,9 +22,11 @@ import { useImportFolder } from './lib/importFolder.js'
 const NAV = [
   { id: 'overview', label: 'Übersicht', icon: Icon.home },
   { id: 'budget', label: 'Budget', icon: Icon.list },
+  { id: 'year', label: 'Jahresübersicht', icon: Icon.table },
   { id: 'transactions', label: 'Buchungen', icon: Icon.receipt },
   { id: 'reserves', label: 'Rücklagen', icon: Icon.calendar },
   { id: 'accounts', label: 'Konten', icon: Icon.wallet },
+  { id: 'loans', label: 'Darlehen', icon: Icon.loan },
   { id: 'stats', label: 'Statistik', icon: Icon.chart },
   { id: 'settings', label: 'Einstellungen', icon: Icon.gear },
 ]
@@ -45,6 +49,13 @@ export default function App() {
   useEffect(() => {
     ensureYears([Number(month.slice(0, 4)), Number(addMonths(month, -11).slice(0, 4))])
   }, [month, ensureYears])
+
+  // Darlehen: alle vorhandenen Buchungsjahre laden – die Einzahlung und Rückzahlungen können in jedem Jahr liegen
+  const hasLoans = (data?.loans || []).length > 0
+  const { knownYears } = txStore
+  useEffect(() => {
+    if (hasLoans && knownYears.length) ensureYears(knownYears)
+  }, [hasLoans, knownYears, ensureYears])
 
   useEffect(() => { localStorage.setItem('view', view) }, [view])
 
@@ -81,27 +92,40 @@ export default function App() {
 
   const replaceData = useCallback((next) => { dirty.current = true; setData(next) }, [])
 
+  const startMonth = data?.startMonth || null
   // Wiederkehrende Buchungen: fällige Termine bis heute erzeugen (beim Start und bei Änderungen an Vorlagen)
   const recurringKey = data ? JSON.stringify(data.recurring || []) : ''
   useEffect(() => {
     if (!data || !(data.recurring || []).length) return
-    const list = data.recurring.flatMap((tpl) => buildOccurrences(tpl, todayStr()))
+    // erst ab dem Startmonat erzeugen
+    const list = data.recurring.flatMap((tpl) => buildOccurrences(tpl, todayStr())).filter((t) => !startMonth || monthOf(t.date) >= startMonth)
     if (!list.length) return
     const years = [...new Set(list.map((t) => Number(t.date.slice(0, 4))))]
     ensureYears(years).then(() => txStore.addTxUnique(list))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recurringKey, ensureYears])
+  }, [recurringKey, ensureYears, startMonth])
 
-  const s = useMemo(() => (data ? summary(data, month) : null), [data, month])
-  const tx = useMemo(
-    () => ({
+  // Vor den Startmonat kann man nicht zurückblättern
+  useEffect(() => {
+    if (startMonth && month < startMonth) setMonth(startMonth)
+  }, [startMonth, month])
+
+  // Mit allen Buchungen: bereits zurückbezahlte Darlehen werden nicht mehr budgetiert
+  const s = useMemo(() => (data ? summary(data, month, txStore.transactions) : null), [data, month, txStore.transactions])
+  const tx = useMemo(() => {
+    // Buchungen vor dem Startmonat werden ausgeblendet (nicht gelöscht). Für Kontosalden und
+    // Saldo-Abgleich sowie die Duplikaterkennung beim Import bleiben alle unter `allTransactions`.
+    const visible = startMonth ? txStore.transactions.filter((t) => monthOf(t.date) >= startMonth) : txStore.transactions
+    return {
       ...txStore,
-      actual: actualByPosition(txStore.transactions, month),
-      progress: monthProgress(txStore.transactions, month),
+      allTransactions: txStore.transactions,
+      transactions: visible,
+      startMonth,
+      actual: actualByPosition(visible, month),
+      progress: monthProgress(visible, month),
       isClosed: (key) => txStore.closedMonths.includes(key),
-    }),
-    [txStore, month],
-  )
+    }
+  }, [txStore, month, startMonth])
 
   if (error && !data) return <div className="p-8 text-bad">Fehler beim Laden: {error}</div>
   if (!data) return <div className="grid h-full place-items-center text-ink-3">Lade Budget …</div>
@@ -158,12 +182,19 @@ export default function App() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1280px] px-8 py-7">
+        <div className="px-8 py-7">
           <div className="mb-6 flex items-center justify-between gap-4">
             <h1 className="text-[22px] font-semibold tracking-tight">{NAV.find((n) => n.id === view)?.label}</h1>
             {view !== 'settings' && (
               <div className="flex items-center gap-1 rounded-xl border border-line bg-surface p-1">
-                <button className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-surface-2" onClick={() => setMonth(addMonths(month, -1))} title="Vorheriger Monat">{Icon.left}</button>
+                <button
+                  className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-surface-2 disabled:pointer-events-none disabled:opacity-30"
+                  onClick={() => setMonth(addMonths(month, -1))}
+                  disabled={!!startMonth && month <= startMonth}
+                  title={startMonth && month <= startMonth ? `Start des Budget-Planers: ${monthLabel(startMonth)}` : 'Vorheriger Monat'}
+                >
+                  {Icon.left}
+                </button>
                 <div className="num w-24 text-center text-[14px] font-medium">{monthLabel(month)}</div>
                 <button className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-surface-2" onClick={() => setMonth(addMonths(month, 1))} title="Nächster Monat">{Icon.right}</button>
                 {!isCurrent && (
@@ -175,9 +206,11 @@ export default function App() {
 
           {view === 'overview' && <Overview {...props} />}
           {view === 'budget' && <BudgetEditor {...props} />}
+          {view === 'year' && <YearOverview {...props} />}
           {view === 'transactions' && <Transactions {...props} folderImport={folderImport} />}
           {view === 'reserves' && <Reserves {...props} />}
           {view === 'accounts' && <Accounts {...props} />}
+          {view === 'loans' && <Loans {...props} />}
           {view === 'stats' && <Stats {...props} />}
           {view === 'settings' && <Settings {...props} />}
         </div>

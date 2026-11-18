@@ -17,7 +17,7 @@ function toCsv(data, key = monthKey()) {
   return rows.map((r) => r.map(csvCell).join(';')).join('\n')
 }
 
-export default function Settings({ data, theme, month }) {
+export default function Settings({ data, update, theme, month }) {
   const [info, setInfo] = useState({ dataPath: '' })
   const [msg, setMsg] = useState('')
   useEffect(() => { getInfo().then(setInfo) }, [])
@@ -25,7 +25,7 @@ export default function Settings({ data, theme, month }) {
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <Card title="Datei" subtitle="Budget, Konten und Regeln liegen in dieser Datei, Buchungen pro Jahr im Unterordner «buchungen». Pro Tag und Datei wird automatisch eine Sicherung im Unterordner «backups» angelegt.">
         <div className="num rounded-lg bg-surface-2 px-3 py-2 text-[13px] break-all">{info.dataPath}</div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -36,6 +36,26 @@ export default function Settings({ data, theme, month }) {
             </>
           )}
           <Button onClick={async () => { const r = await exportCsv(toCsv(data, month)); if (r) flash(`Exportiert: ${r.path}`) }}>Als CSV exportieren (für Excel)</Button>
+        </div>
+      </Card>
+
+      <Card
+        title="Start des Budget-Planers"
+        subtitle="Ab diesem Monat wird gezählt. Frühere Monate lassen sich nicht mehr anwählen, Buchungen davor werden ausgeblendet (nicht gelöscht) und beim CSV-Import übersprungen. Kontosalden bleiben unverändert."
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="month"
+            value={data.startMonth || ''}
+            max={monthKey()}
+            onChange={(e) => update((d) => { if (e.target.value) d.startMonth = e.target.value; else delete d.startMonth })}
+            className="num rounded-md border border-line bg-surface px-2 py-1 text-[14px] outline-none focus:border-accent"
+          />
+          {data.startMonth ? (
+            <Button variant="ghost" onClick={() => update((d) => { delete d.startMonth })}>Kein Startmonat</Button>
+          ) : (
+            <span className="text-[13px] text-ink-3">Nicht gesetzt – alle Monate werden angezeigt.</span>
+          )}
         </div>
       </Card>
 
