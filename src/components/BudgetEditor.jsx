@@ -35,7 +35,7 @@ export const BILLING = [
   [24, 'alle 2 Jahre'],
 ]
 
-const COLS = 'grid-cols-[minmax(0,1fr)_120px_112px_112px_128px_84px]'
+const COLS = 'grid-cols-[minmax(0,1fr)_120px_112px_112px_128px_112px_84px]'
 
 /** Effektiv ausgegeben (aus Buchungen) im Vergleich zum Monatsbetrag. */
 export function ActualCell({ actual, planned, periodic, hasTx }) {
@@ -57,11 +57,29 @@ export function ActualCell({ actual, planned, periodic, hasTx }) {
   )
 }
 
+/** Restbetrag = Budget − effektiv (grün: noch übrig, rot: über Budget). Bei jährlich abgerechneten Positionen leer. */
+function RestCell({ planned, actual, periodic, hasTx, title }) {
+  if (!hasTx || periodic) {
+    return <div className="px-2 text-right text-ink-3" title={periodic ? 'Jährlich abgerechnet – Rest siehe Rücklagen' : undefined}>–</div>
+  }
+  const rest = Math.round(((planned || 0) - (actual || 0)) * 100) / 100
+  const tone = rest < -0.005 ? 'text-bad' : rest > 0.005 ? 'text-good' : 'text-ink-3'
+  return (
+    <div className={`num px-2 text-right ${tone}`} title={title || (rest < 0 ? `${fmtCHF(-rest)} über Budget` : `${fmtCHF(rest)} noch verfügbar`)}>
+      {fmtCHF(rest)}
+    </div>
+  )
+}
+
 /** Tabelle der Gruppen-Positionen. Positionen können monatlich oder periodisch (z. B. jährlich) abgerechnet werden. */
 function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLabel = 'Position hinzufügen' }) {
   const total = items.reduce((s, it) => s + itemMonthly(it, month), 0)
   const totalActual = items.reduce((s, it) => s + (actual[it.id] || 0), 0)
   const totalYear = items.reduce((s, it) => s + itemMonthlyFlat(it, month) * 12, 0)
+  // Rest nur über monatliche Positionen: bei jährlich abgerechneten sind Rücklage und Zahlung nicht vergleichbar
+  const monthlyItems = items.filter((it) => !isPeriodic(it))
+  const totalRestPlan = monthlyItems.reduce((s, it) => s + itemMonthly(it, month), 0)
+  const totalRestActual = monthlyItems.reduce((s, it) => s + (actual[it.id] || 0), 0)
   return (
     <div>
       <div className={`grid ${COLS} items-center gap-2 border-b border-line pb-1.5 text-[12px] font-medium uppercase tracking-wide text-ink-3`}>
@@ -70,6 +88,7 @@ function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLa
         <div className="px-2 text-right">Betrag</div>
         <div className="px-2 text-right">Pro Monat</div>
         <div className="px-2 text-right">Effektiv</div>
+        <div className="px-2 text-right">Rest</div>
         <div />
       </div>
       {/* Aktive Positionen in ihrer Reihenfolge, deaktivierte ausgegraut am Ende der Gruppe */}
@@ -100,6 +119,7 @@ function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLa
                 {fmtCHF(periodic ? r.rate : amountAt(it, month))}
               </div>
               <ActualCell actual={actual[it.id]} planned={periodic ? r.rate : amountAt(it, month)} periodic={periodic} hasTx={hasTx} />
+              <RestCell planned={amountAt(it, month)} actual={actual[it.id]} periodic={periodic} hasTx={hasTx} />
               <div className="flex justify-end opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
                 {!periodic && (
                   <IconButton title={`Ab ${monthLabel(month)} deaktivieren – frühere Monate bleiben unverändert`} onClick={() => onUpdate((list) => setActiveAt(list[idx], month, false))}>{Icon.pause}</IconButton>
@@ -145,6 +165,7 @@ function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLa
             <div className="num px-2 text-right text-ink-3">{fmtCHF(amountAt(it, month))}</div>
             <div className="num px-2 text-right text-ink-3">{fmtCHF(0)}</div>
             <ActualCell actual={actual[it.id]} planned={0} periodic={false} hasTx={hasTx && !!actual[it.id]} />
+            <RestCell planned={0} actual={actual[it.id]} hasTx={hasTx && !!actual[it.id]} />
             <div className="flex justify-end">
               <button
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft"
@@ -177,6 +198,7 @@ function ItemTable({ items, onUpdate, onDelete, month, actual = {}, hasTx, addLa
         </div>
         <div className="num px-2 text-right">{fmtCHF(total)}</div>
         <div className={`num px-2 text-right ${hasTx && totalActual > total ? 'text-bad' : ''}`}>{hasTx ? fmtCHF(totalActual) : '–'}</div>
+        <RestCell planned={totalRestPlan} actual={totalRestActual} hasTx={hasTx} title="Rest der monatlichen Positionen (ohne jährlich abgerechnete)" />
         <div className="text-right text-[11px] font-normal text-ink-3">Summe</div>
       </div>
     </div>
