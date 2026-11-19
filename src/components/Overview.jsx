@@ -4,6 +4,8 @@ import { fmtCHF, fmtCHF0, fmtDate, fmtPct } from '../lib/format.js'
 import { amountAt, annualForecast, isPeriodic, itemMonthly, monthKey, monthLabel } from '../lib/calc.js'
 import { loanOutId, loansMonthly, loansOverview } from '../lib/loans.js'
 import { buildShares } from '../lib/shares.js'
+import { openPaymentsSummary } from '../lib/openPayments.js'
+import { todayStr } from '../lib/recurring.js'
 
 function Row({ label, value, strong, negative, muted, onClick }) {
   return (
@@ -24,6 +26,10 @@ export default function Overview({ data, summary: s, month, setView, tx }) {
   const placeholders = s.reserves.filter((a) => a.placeholder).length
   // Kachel «Offene Darlehen» nur, wenn Darlehen erfasst sind
   const loanInfo = (data.loans || []).length ? loansOverview(data.loans, tx.allTransactions || tx.transactions, monthKey()) : null
+  // Kachel «Offene Zahlungen» nur, wenn welche vorgemerkt sind
+  const openInfo = (data.openPayments || []).length ? openPaymentsSummary(data.openPayments, todayStr()) : null
+  const tileCols = { 4: 'lg:grid-cols-4', 5: 'lg:grid-cols-5', 6: 'lg:grid-cols-6' }[4 + !!loanInfo + !!openInfo]
+  const openTab = () => { try { sessionStorage.setItem('txTab', 'open') } catch {} setView('transactions') }
 
   return (
     <div className="flex flex-col gap-5">
@@ -39,7 +45,7 @@ export default function Overview({ data, summary: s, month, setView, tx }) {
         </button>
       )}
 
-      <div className={`grid grid-cols-2 gap-4 ${loanInfo ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
+      <div className={`grid grid-cols-2 gap-4 ${tileCols}`}>
         <Stat label="Einnahmen" value={fmtCHF0(s.income)} hint={`${data.income.length} Positionen`} />
         <Stat label="Budget / Ausgaben" value={fmtCHF0(s.budget)} hint={`davon Rücklagen ${fmtCHF0(s.reserves.reduce((a, r) => a + r.rate, 0))}`} />
         <Stat label="Sparbetrag" value={fmtCHF0(s.savings)} hint={`Sparquote ${fmtPct(s.savingsRate)}`} />
@@ -49,6 +55,22 @@ export default function Overview({ data, summary: s, month, setView, tx }) {
           tone={s.result >= 0 ? 'good' : 'bad'}
           hint={s.result >= 0 ? `${fmtPct(s.freeRate)} der Einnahmen` : 'Budget übersteigt Einnahmen'}
         />
+        {openInfo && (
+          <button onClick={openTab} className="text-left transition hover:brightness-[0.98]">
+            <Stat
+              label="Offene Zahlungen"
+              value={fmtCHF0(openInfo.total)}
+              tone={openInfo.overdue ? 'bad' : undefined}
+              hint={
+                openInfo.overdue
+                  ? `${openInfo.overdue} überfällig`
+                  : openInfo.nextDue
+                    ? `nächste fällig ${fmtDate(openInfo.nextDue)}`
+                    : `${openInfo.count} offen`
+              }
+            />
+          </button>
+        )}
         {loanInfo && (
           <button onClick={() => setView('loans')} className="text-left transition hover:brightness-[0.98]">
             <Stat

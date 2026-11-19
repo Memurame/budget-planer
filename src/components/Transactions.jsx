@@ -3,6 +3,9 @@ import { Card, Button, IconButton, Badge, Icon, AmountInput } from './ui.jsx'
 import PositionSelect, { positionName } from './PositionSelect.jsx'
 import EntryForm from './EntryForm.jsx'
 import RecurringList from './RecurringList.jsx'
+import OpenPayments from './OpenPayments.jsx'
+import SplitEditor from './SplitEditor.jsx'
+import { todayStr } from '../lib/recurring.js'
 import { fmtCHF, fmtDate, fmtPct } from '../lib/format.js'
 import { monthLabel, uid } from '../lib/calc.js'
 import { importRemove, openCsv } from '../lib/storage.js'
@@ -18,7 +21,10 @@ const FILTERS = [
 ]
 
 export default function Transactions({ data, update, month, tx, folderImport }) {
-  const [tab, setTab] = useState('list')
+  // Tab; die Übersicht kann «Offene Zahlungen» direkt öffnen (einmalig über sessionStorage)
+  const [tab, setTab] = useState(() => { try { const t = sessionStorage.getItem('txTab'); sessionStorage.removeItem('txTab'); return t || 'list' } catch { return 'list' } })
+  const [convert, setConvert] = useState(null) // offene Zahlung, die gerade als Buchung erfasst wird
+  const [showOpenForm, setShowOpenForm] = useState(false) // Formular «Offene Zahlung vormerken»
   const [status, setStatus] = useState('all')
   const [scope, setScope] = useState('month')
   const [accountId, setAccountId] = useState('')
@@ -198,6 +204,7 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
     const mapping = {}
     for (const p of res.products) mapping[p] = data.importMappings[`revolut:${p}`] || (data.accounts.find((a) => a.name.toLowerCase().includes(p.toLowerCase()))?.id ?? '__new')
     setImp({ file: file.name, fromFolder: !!file.fromFolder, ...res, mapping })
+    setTab('list') // Vorschau erscheint bei den Buchungen
   }
 
   // Vorschau schliessen (nach Import oder Abbrechen); eine Datei aus dem Import-Ordner wird dabei gelöscht
@@ -276,13 +283,11 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
         subtitle={p.total ? `${p.confirmed} von ${p.relevant} bestätigt · ${p.open} offen · ${p.auto} automatisch · ${p.manual} manuell · ${p.ignored} ignoriert` : 'Noch keine Buchungen in diesem Monat'}
         actions={
           <>
-            <Button onClick={startImport}>{Icon.upload} CSV importieren</Button>
-            <Button onClick={() => setShowManual((v) => !v)}>{Icon.plus} Buchung erfassen</Button>
             {closed ? (
-              <Button onClick={() => tx.setMonthClosed(month, false)} title="Monat wieder öffnen">{Icon.lock} Abgeschlossen</Button>
+              <Button variant="ghost" onClick={() => tx.setMonthClosed(month, false)} title="Monat wieder öffnen">{Icon.lock} Abgeschlossen</Button>
             ) : (
               <Button
-                variant="primary"
+                variant="ghost"
                 disabled={!p.total}
                 onClick={() => (p.open + p.auto + p.manual === 0 || confirm(`Es sind noch ${p.open + p.auto + p.manual} Buchungen nicht bestätigt. Monat trotzdem abschliessen?`)) && tx.setMonthClosed(month, true)}
               >
@@ -300,7 +305,35 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
 
       {msg && <div className="rounded-xl bg-accent-soft px-4 py-2.5 text-[13px] text-ink-2">{msg}</div>}
 
-      {imp && preview && (
+      <div className="flex items-center gap-1 border-b border-line">
+        {[['list', 'Buchungen'], ['open', `Offene Zahlungen (${(data.openPayments || []).length})`], ['recurring', `Wiederkehrend (${(data.recurring || []).length})`], ['rules', `Regeln (${data.rules.length})`]].map(([v, l]) => (
+          <button key={v} onClick={() => { if (v !== tab) { setShowManual(false); setShowOpenForm(false); setConvert(null) } setTab(v) }} className={`-mb-px border-b-2 px-3 py-2 text-[14px] ${tab === v ? 'border-accent font-medium text-accent' : 'border-transparent text-ink-2 hover:text-ink'}`}>{l}</button>
+        ))}
+      </div>
+
+      {/* Einheitliche Knopfzeile unter den Tabs: Hauptaktion (blau) zuerst, weitere Aktionen daneben */}
+      <div className="flex flex-wrap items-center gap-2">
+        {tab === 'list' && (
+          <>
+            <Button variant="primary" onClick={() => setShowManual((v) => !v)}>{Icon.plus} Buchung erfassen</Button>
+            <Button onClick={startImport}>{Icon.upload} CSV importieren</Button>
+          </>
+        )}
+        {tab === 'open' && (
+          <Button variant="primary" onClick={() => { setConvert(null); setShowOpenForm((v) => !v) }}>{Icon.plus} Offene Zahlung vormerken</Button>
+        )}
+        {tab === 'recurring' && (
+          <Button variant="primary" onClick={() => setShowManual((v) => !v)}>{Icon.plus} Neue Wiederholung</Button>
+        )}
+        {tab === 'rules' && (
+          <>
+            <Button variant="primary" onClick={() => update((d) => { d.rules.push({ id: uid(), pattern: '', positionId: null }) })}>{Icon.plus} Regel</Button>
+            <Button onClick={() => { const n = applyAllRules(data.rules); flash(n ? `${n} Buchungen neu zugeordnet.` : 'Keine Änderungen.') }}>Regeln anwenden</Button>
+          </>
+        )}
+      </div>
+
+      {tab === 'list' && imp && preview && (
         <Card
           title={`Import: ${imp.file}`}
           subtitle={`${imp.rows.length} Zeilen · ${preview.months.map((m) => monthLabel(m)).join(', ')}${imp.skipped ? ` · ${imp.skipped} nicht abgeschlossene übersprungen` : ''}${preview.beforeStart ? ` · ${preview.beforeStart} vor dem Start (${monthLabel(tx.startMonth)}) übersprungen` : ''}`}
@@ -342,18 +375,33 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
         </Card>
       )}
 
-      {showManual && <EntryForm data={data} update={update} tx={tx} month={month} onCancel={() => setShowManual(false)} onDone={(m) => { setShowManual(false); flash(m) }} />}
+      {tab === 'open' && convert && (
+        <EntryForm
+          key={convert.id}
+          data={data}
+          update={update}
+          tx={tx}
+          month={month}
+          initial={{ text: convert.text, amount: convert.amount, date: todayStr(), accountId: convert.accountId, positionId: convert.positionId, splits: convert.splits }}
+          onCancel={() => setConvert(null)}
+          onDone={(m) => {
+            // Buchung gespeichert → offene Zahlung entfernen
+            update((d) => { d.openPayments = (d.openPayments || []).filter((x) => x.id !== convert.id) })
+            setConvert(null)
+            flash(m)
+          }}
+        />
+      )}
 
-      <div className="flex items-center gap-1 border-b border-line">
-        {[['list', 'Buchungen'], ['recurring', `Wiederkehrend (${(data.recurring || []).length})`], ['rules', `Regeln (${data.rules.length})`]].map(([v, l]) => (
-          <button key={v} onClick={() => setTab(v)} className={`-mb-px border-b-2 px-3 py-2 text-[14px] ${tab === v ? 'border-accent font-medium text-accent' : 'border-transparent text-ink-2 hover:text-ink'}`}>{l}</button>
-        ))}
-      </div>
+      {/* Formular «Buchung erfassen»: bei den Buchungen, und für neue wiederkehrende Buchungen auch im Tab «Wiederkehrend» */}
+      {showManual && (tab === 'list' || tab === 'recurring') && <EntryForm data={data} update={update} tx={tx} month={month} onCancel={() => setShowManual(false)} onDone={(m) => { setShowManual(false); flash(m) }} />}
 
-      {tab === 'recurring' ? (
-        <RecurringList data={data} update={update} tx={tx} onAdd={() => { setShowManual(true); window.scrollTo?.(0, 0); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+      {tab === 'open' ? (
+        <OpenPayments data={data} update={update} showForm={showOpenForm} onCloseForm={() => setShowOpenForm(false)} onConvert={(p) => { setShowOpenForm(false); setConvert(p); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+      ) : tab === 'recurring' ? (
+        <RecurringList data={data} update={update} tx={tx} />
       ) : tab === 'rules' ? (
-        <RulesEditor data={data} update={update} tx={tx} onApply={(rules) => { const n = applyAllRules(rules); flash(n ? `${n} Buchungen neu zugeordnet.` : 'Keine Änderungen.') }} />
+        <RulesEditor data={data} update={update} tx={tx} />
       ) : (
         <>
 
@@ -615,48 +663,6 @@ function BottomBar({ children, onClose }) {
   )
 }
 
-/**
- * Buchung auf mehrere Positionen aufteilen. Beträge werden positiv eingegeben (Anteil der Buchung);
- * die Summe muss dem Buchungsbetrag entsprechen. Der Rest kann mit einem Klick in eine Zeile übernommen werden.
- */
-function SplitEditor({ data, t, onSave, onCancel }) {
-  const sign = t.amount < 0 ? -1 : 1
-  const total = Math.abs(t.amount)
-  const initial = t.splits?.length
-    ? t.splits.map((x) => ({ positionId: x.positionId, amount: Math.abs(x.amount) }))
-    : [{ positionId: t.positionId, amount: total }, { positionId: null, amount: 0 }]
-  const [rows, setRows] = useState(initial)
-  const sum = Math.round(rows.reduce((a, r) => a + (Number(r.amount) || 0), 0) * 100) / 100
-  const rest = Math.round((total - sum) * 100) / 100
-  const valid = rows.length >= 2 && Math.abs(rest) < 0.005 && rows.every((r) => r.positionId && r.amount > 0)
-  const set = (i, k, v) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)))
-  return (
-    <div className="text-[13px]">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="font-medium">«{t.text}» aufteilen – total {fmtCHF(total)}</span>
-        <span className={Math.abs(rest) < 0.005 ? 'text-good' : 'text-warn'}>{Math.abs(rest) < 0.005 ? '✓ vollständig verteilt' : `noch ${fmtCHF(rest)} zu verteilen`}</span>
-      </div>
-      {rows.map((r, i) => (
-        <div key={i} className="mb-1.5 flex items-center gap-2">
-          <div className="w-72 rounded-md border border-line bg-surface"><PositionSelect data={data} month={monthOf(t.date)} value={r.positionId} onChange={(v) => set(i, 'positionId', v)} /></div>
-          <div className="w-32 rounded-md border border-line bg-surface"><AmountInput value={r.amount} onChange={(v) => set(i, 'amount', Math.abs(v))} /></div>
-          {Math.abs(rest) >= 0.005 && (
-            <button className="rounded px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft" onClick={() => set(i, 'amount', Math.round(((Number(r.amount) || 0) + rest) * 100) / 100)}>Rest hierher</button>
-          )}
-          {rows.length > 2 && <IconButton title="Zeile entfernen" className="hover:text-bad" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>{Icon.trash}</IconButton>}
-        </div>
-      ))}
-      <div className="mt-2 flex items-center gap-2">
-        <Button variant="ghost" className="-ml-3" onClick={() => setRows((rs) => [...rs, { positionId: null, amount: Math.max(0, rest) }])}>{Icon.plus} Zeile</Button>
-        <div className="ml-auto flex gap-2">
-          {t.splits?.length > 0 && <Button variant="ghost" onClick={() => onSave(null)}>Aufteilung entfernen</Button>}
-          <Button variant="ghost" onClick={onCancel}>Abbrechen</Button>
-          <Button variant="primary" disabled={!valid} onClick={() => onSave(rows.map((r) => ({ positionId: r.positionId, amount: Math.round(sign * r.amount * 100) / 100 })))}>Aufteilung speichern</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 const Mini = ({ label, value }) => (
   <div className="rounded-lg bg-surface-2 px-3 py-2">
@@ -666,7 +672,7 @@ const Mini = ({ label, value }) => (
 )
 
 /** Regeln: Textmuster → Position oder ignorieren. Reihenfolge = Priorität. */
-function RulesEditor({ data, update, tx, onApply }) {
+function RulesEditor({ data, update, tx }) {
   const set = (i, fn) => update((d) => fn(d.rules[i]))
   const move = (i, dir) => update((d) => { const j = i + dir; if (j >= 0 && j < d.rules.length) [d.rules[i], d.rules[j]] = [d.rules[j], d.rules[i]] })
   const matches = (r) => tx.transactions.filter((t) => ruleMatches(r, t.text)).length
@@ -674,12 +680,6 @@ function RulesEditor({ data, update, tx, onApply }) {
     <Card
       title="Zuordnungsregeln"
       subtitle="Die erste passende Regel gewinnt. Gross-/Kleinschreibung egal; /…/ für reguläre Ausdrücke. Manuell bearbeitete und bestätigte Buchungen werden nie verändert."
-      actions={
-        <>
-          <Button onClick={() => onApply(data.rules)}>Regeln anwenden</Button>
-          <Button variant="primary" onClick={() => update((d) => { d.rules.push({ id: uid(), pattern: '', positionId: null }) })}>{Icon.plus} Regel</Button>
-        </>
-      }
     >
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_70px_84px] gap-2 border-b border-line pb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-3">
         <div className="px-2">Text enthält</div><div className="px-1">Zuordnung</div><div className="px-2">Notiz</div><div className="text-right">Treffer</div><div />

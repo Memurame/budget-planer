@@ -232,6 +232,18 @@ Lifestyle-Pocket) und anschliessend mit einer Umbuchung ausgeglichen.
 - Summen: Budget, Ist und Verfügbar **bis heute** (nur vergangene Monate inkl. laufendem), Budget fürs ganze Jahr und
   **Verfügbar Jahr** (Jahresbudget − bisher ausgegeben).
 
+## 9d. Offene Zahlungen
+
+- Tab «Offene Zahlungen» auf der Buchungen-Seite: vorgemerkte **Ausgaben**, die noch keine Buchungen sind
+  (`openPayments` in `budget.json`: `{ id, text, amount, dueDate, accountId?, positionId?, splits?, note }`).
+- Wie Buchungen auf mehrere Positionen **aufteilbar**; die Aufteilung wird beim Umwandeln übernommen (im Formular anpassbar).
+- Zählen nirgends mit (Budget, Soll/Ist, Saldo, Statistik).
+- Liste nach Fälligkeit: überfällig (rot), nächste 7 Tage, später; Total aller offenen Zahlungen.
+- **Als Buchung erfassen**: öffnet das Buchungsformular vorausgefüllt (Datum = heute); Betrag, Datum, Konto und
+  Position anpassbar. Nach dem Speichern verschwindet die offene Zahlung.
+- **Erledigt**: entfernt sie ohne Buchung (z. B. wenn die Zahlung per CSV-Import kommt).
+- Übersicht: Kachel «Offene Zahlungen» (Total, Anzahl überfällig bzw. nächste Fälligkeit), Klick öffnet den Tab.
+
 ## 10a. Startmonat
 
 - In den Einstellungen: **Start des Budget-Planers** (Monat, `startMonth` in `budget.json`, optional).
