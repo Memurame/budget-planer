@@ -31,6 +31,7 @@ export function migrate(data) {
     pendingRules: data.pendingRules || [],
     recurring: data.recurring || [],
     loans: data.loans || [],
+    openPayments: data.openPayments || [],
   }
 }
 

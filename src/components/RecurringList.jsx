@@ -11,7 +11,7 @@ const KIND_LABEL = { expense: 'Ausgabe', credit: 'Gutschrift', transfer: 'Umbuch
  * Vorlagen für wiederkehrende Buchungen. Änderungen gelten für künftige Termine –
  * bereits erzeugte Buchungen bleiben unverändert.
  */
-export default function RecurringList({ data, update, tx, onAdd }) {
+export default function RecurringList({ data, update, tx }) {
   const list = data.recurring || []
   const today = todayStr()
   const set = (id, fn) => update((d) => { const t = (d.recurring || []).find((x) => x.id === id); if (t) fn(t) })
@@ -22,7 +22,6 @@ export default function RecurringList({ data, update, tx, onAdd }) {
     <Card
       title="Wiederkehrende Buchungen"
       subtitle="Werden an jedem Termin automatisch als Buchung erzeugt (bis heute). Änderungen gelten ab dem nächsten Termin; bereits erzeugte Buchungen bleiben unverändert."
-      actions={<Button variant="primary" className="whitespace-nowrap" onClick={onAdd}>{Icon.plus} Neue Wiederholung</Button>}
       padded={false}
     >
       {list.length === 0 ? (
