@@ -18,6 +18,7 @@ import { actualByPosition, migrate, monthOf, monthProgress } from './lib/tx.js'
 import { buildOccurrences, todayStr } from './lib/recurring.js'
 import { APP_VERSION, REPO_URL, useUpdateCheck } from './lib/version.js'
 import { useImportFolder } from './lib/importFolder.js'
+import { confirmLeave } from './lib/unsaved.js'
 
 const NAV = [
   { id: 'overview', label: 'Übersicht', icon: Icon.home },
@@ -35,8 +36,11 @@ export default function App() {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [saveState, setSaveState] = useState('idle') // idle | saving | saved | error
-  const [view, setView] = useState(() => localStorage.getItem('view') || 'overview')
-  const [month, setMonth] = useState(monthKey())
+  const [view, setViewNow] = useState(() => localStorage.getItem('view') || 'overview')
+  const [month, setMonthNow] = useState(monthKey())
+  // Wechsel von Seite oder Monat: vorher nach ungespeicherten Änderungen fragen
+  const setView = (v) => confirmLeave() && setViewNow(v)
+  const setMonth = (m) => confirmLeave() && setMonthNow(m)
   const theme = useTheme()
   const newRelease = useUpdateCheck()
   // Neue CSV im Import-Ordner → Buchungen öffnen, dort erscheint die Import-Vorschau
@@ -107,7 +111,7 @@ export default function App() {
 
   // Vor den Startmonat kann man nicht zurückblättern
   useEffect(() => {
-    if (startMonth && month < startMonth) setMonth(startMonth)
+    if (startMonth && month < startMonth) setMonthNow(startMonth)
   }, [startMonth, month])
 
   // Mit allen Buchungen: bereits zurückbezahlte Darlehen werden nicht mehr budgetiert

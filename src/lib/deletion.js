@@ -17,6 +17,11 @@ export async function confirmAndDelete({ title, message, ids = [], update, tx, m
     d.rules = (d.rules || []).filter((r) => !set.has(r.positionId))
     d.pendingRules = (d.pendingRules || []).filter((r) => !set.has(r.positionId))
     for (const a of d.accounts || []) a.funds = (a.funds || []).filter((id) => !set.has(id))
+    // Wiederholungen mit gelöschter Position (direkt oder in der Aufteilung) lösen → künftige Termine wieder «offen»
+    for (const r of d.recurring || []) {
+      if (set.has(r.positionId)) r.positionId = null
+      if ((r.splits || []).some((x) => set.has(x.positionId))) delete r.splits
+    }
   })
   if (set.size) await tx.unassignPositions(ids)
   return true

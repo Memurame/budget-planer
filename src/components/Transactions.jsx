@@ -1,11 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { Card, Button, IconButton, Badge, Icon, AmountInput } from './ui.jsx'
+import { Card, Button, IconButton, Badge, Icon, AmountInput, TextInput, Changed, DirtyBar, RowSave, dirtyRowCls } from './ui.jsx'
+import { TxEditDialog } from './EditDialogs.jsx'
+import { useDrafts } from '../lib/useDrafts.js'
+import { confirmLeave } from '../lib/unsaved.js'
 import PositionSelect, { positionName } from './PositionSelect.jsx'
 import EntryForm from './EntryForm.jsx'
 import RecurringList from './RecurringList.jsx'
 import OpenPayments from './OpenPayments.jsx'
 import SplitEditor from './SplitEditor.jsx'
-import { todayStr } from '../lib/recurring.js'
+import { scaleSplits, todayStr } from '../lib/recurring.js'
 import { fmtCHF, fmtDate, fmtPct } from '../lib/format.js'
 import { monthLabel, uid } from '../lib/calc.js'
 import { importRemove, openCsv } from '../lib/storage.js'
@@ -34,6 +37,8 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
   const [imp, setImp] = useState(null)
   const suggestionsRef = useRef(null)
   const [splitId, setSplitId] = useState(null)
+  const [editId, setEditId] = useState(null) // Buchung im Bearbeiten-Fenster
+  const drafts = useDrafts() // vorgemerkte Änderungen in der Liste (Konto, Position)
   const pending = data.pendingRules || []
   const [showManual, setShowManual] = useState(false)
   const [msg, setMsg] = useState('')
@@ -73,13 +78,6 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
   const byId = useMemo(() => Object.fromEntries(tx.transactions.map((t) => [t.id, t])), [tx.transactions])
 
   // ── Aktionen ────────────────────────────────────────────────
-  const assign = (t, pid) => {
-    if (!guard([t])) return
-    if (pid === '__ignore') return setIgnored([t], true)
-    tx.updateTx(t.id, (x) => { x.positionId = pid; x.status = pid ? 'manual' : 'open'; x.ruleId = null; x.override = true })
-    if (pid) queueSuggestions([t], pid)
-  }
-
   /**
    * Regelvorschläge sammeln – es wird nichts automatisch erstellt.
    * Ein Vorschlag pro Muster; wird derselbe Händler erneut zugeordnet, wird der Vorschlag aktualisiert.
@@ -160,6 +158,39 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
       else { delete x.splits; x.status = x.positionId ? 'manual' : 'open' }
     })
     setSplitId(null)
+  }
+  /** Vorgemerkte Änderungen einer Buchung übernehmen (Schutz für abgeschlossene Monate macht der Aufrufer). */
+  const applyDraft = (t, p) => {
+    if (!p) return
+    const sign = Math.sign(t.amount) || -1
+    const amountChanged = 'amount' in p && t.source !== 'csv' && p.amount > 0
+    tx.updateTx(t.id, (x) => {
+      if ('text' in p && p.text.trim()) x.text = p.text.trim()
+      if (amountChanged) {
+        x.amount = sign * p.amount
+        x.override = true
+        if (x.splits?.length) x.splits = scaleSplits(x.splits, p.amount).map((s) => ({ positionId: s.positionId, amount: sign * s.amount }))
+      }
+      if ('accountId' in p) x.accountId = p.accountId || null
+      if ('positionId' in p) {
+        x.override = true
+        x.ruleId = null
+        if (p.positionId === '__ignore') { x.status = 'ignored'; x.positionId = null }
+        else { x.positionId = p.positionId; x.status = p.positionId ? 'manual' : 'open' }
+      }
+    })
+    // manuelle Umbuchung: Gegenbuchung mit anpassen
+    const partner = t.linkedId && byId[t.linkedId]
+    if (amountChanged && partner && /Umbuchung/.test(t.kind || '') && partner.source !== 'csv') {
+      tx.updateTx(partner.id, (x) => { x.amount = -sign * p.amount; x.override = true })
+    }
+    if (p.positionId && p.positionId !== '__ignore') queueSuggestions([t], p.positionId)
+  }
+  const saveDrafts = (ids) => {
+    const list = ids.map((id) => byId[id]).filter(Boolean)
+    if (!list.length || !guard(list)) return
+    for (const t of list) applyDraft(t, drafts.take(t.id))
+    for (const id of ids) drafts.take(id) // verschwundene Buchungen
   }
   const unconfirm = (t) => guard([t]) && tx.updateTx(t.id, (x) => { x.status = 'manual' })
   const assignMany = (list, pid) => {
@@ -307,7 +338,7 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
 
       <div className="flex items-center gap-1 border-b border-line">
         {[['list', 'Buchungen'], ['open', `Offene Zahlungen (${(data.openPayments || []).length})`], ['recurring', `Wiederkehrend (${(data.recurring || []).length})`], ['rules', `Regeln (${data.rules.length})`]].map(([v, l]) => (
-          <button key={v} onClick={() => { if (v !== tab) { setShowManual(false); setShowOpenForm(false); setConvert(null) } setTab(v) }} className={`-mb-px border-b-2 px-3 py-2 text-[14px] ${tab === v ? 'border-accent font-medium text-accent' : 'border-transparent text-ink-2 hover:text-ink'}`}>{l}</button>
+          <button key={v} onClick={() => { if (v === tab || !confirmLeave()) return; setShowManual(false); setShowOpenForm(false); setConvert(null); setTab(v) }} className={`-mb-px border-b-2 px-3 py-2 text-[14px] ${tab === v ? 'border-accent font-medium text-accent' : 'border-transparent text-ink-2 hover:text-ink'}`}>{l}</button>
         ))}
       </div>
 
@@ -394,7 +425,7 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
       )}
 
       {/* Formular «Buchung erfassen»: bei den Buchungen, und für neue wiederkehrende Buchungen auch im Tab «Wiederkehrend» */}
-      {showManual && (tab === 'list' || tab === 'recurring') && <EntryForm data={data} update={update} tx={tx} month={month} onCancel={() => setShowManual(false)} onDone={(m) => { setShowManual(false); flash(m) }} />}
+      {showManual && (tab === 'list' || tab === 'recurring') && <EntryForm key={tab} recurring={tab === 'recurring'} data={data} update={update} tx={tx} month={month} onCancel={() => setShowManual(false)} onDone={(m) => { setShowManual(false); flash(m) }} />}
 
       {tab === 'open' ? (
         <OpenPayments data={data} update={update} showForm={showOpenForm} onCloseForm={() => setShowOpenForm(false)} onConvert={(p) => { setShowOpenForm(false); setConvert(p); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }) }} />
@@ -471,6 +502,8 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
             )}
           </div>
 
+          <DirtyBar count={drafts.count} onSave={() => saveDrafts(drafts.ids)} onDiscard={drafts.discardAll} />
+
           <Card padded={false}>
             {visible.length === 0 ? (
               <div className="px-5 py-10 text-center text-[14px] text-ink-3">
@@ -484,46 +517,62 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
                       <th className="w-10 py-2.5 pl-4"><input type="checkbox" checked={allVisibleSelected} onChange={() => setSelected(allVisibleSelected ? new Set() : new Set(visible.map((t) => t.id)))} className="accent-[var(--accent)]" /></th>
                       <th className="w-24 px-2 font-medium">Datum</th>
                       <th className="px-2 font-medium">Text</th>
-                      <th className="w-36 px-2 font-medium">Konto</th>
-                      <th className="w-56 px-2 font-medium">Position</th>
+                      <th className="w-44 px-2 font-medium">Konto</th>
+                      <th className="w-72 px-2 font-medium">Position</th>
                       <th className="w-32 whitespace-nowrap px-2 text-right font-medium">Betrag</th>
                       <th className="w-28 px-2 font-medium">Status</th>
-                      <th className="w-24 pr-4" />
+                      <th className="w-52 pr-4" />
                     </tr>
                   </thead>
                   <tbody>
                     {visible.map((t) => {
                       const linked = t.linkedId && byId[t.linkedId]
+                      const dirty = drafts.dirty(t.id)
+                      const posValue = drafts.val(t.id, 'positionId', t.positionId)
+                      const locked = t.status === 'confirmed' // bestätigt → nur anzeigen
                       return (
                         <Fragment key={t.id}>
-                        <tr className={`group border-b border-line last:border-b-0 ${selected.has(t.id) ? 'bg-accent-soft/50' : 'hover:bg-surface-2/60'} ${t.status === 'ignored' ? 'text-ink-3' : ''}`}>
+                        <tr
+                          onKeyDown={drafts.rowKeys(t.id, () => saveDrafts([t.id]))}
+                          className={`group border-b border-line last:border-b-0 ${dirty ? dirtyRowCls : selected.has(t.id) ? 'bg-accent-soft/50' : 'hover:bg-surface-2/60'} ${t.status === 'ignored' ? 'text-ink-3' : ''}`}
+                        >
                           <td className="py-1.5 pl-4"><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} className="accent-[var(--accent)]" /></td>
                           <td className="num px-2" title={t.bookedDate && t.bookedDate !== t.date ? `verbucht ${fmtDate(t.bookedDate)}` : undefined}>{fmtDate(t.date)}</td>
                           <td className="px-2">
                             <div className="flex items-center gap-1.5">
-                              <span className="truncate">{t.text}</span>
+                              {locked ? (
+                                <span className="truncate">{t.text}</span>
+                              ) : (
+                                <Changed on={drafts.has(t.id, 'text')} className="min-w-0 flex-1">
+                                  <TextInput value={drafts.val(t.id, 'text', t.text)} onChange={(v) => drafts.set(t.id, 'text', v, t.text)} className="-ml-2" />
+                                </Changed>
+                              )}
                               {linked && <span className="text-accent" title={`Ausgleich: ${linked.text} (${fmtCHF(linked.amount)}, ${fmtDate(linked.date)})`}>{Icon.link}</span>}
                             </div>
                             <div className="text-[11px] text-ink-3">{[t.kind, t.source === 'manual' && 'manuell erfasst', t.source === 'correction' && 'Saldo-Korrektur'].filter(Boolean).join(' · ')}</div>
                           </td>
                           <td className="truncate px-1 text-ink-2">
-                            {t.source === 'csv' ? (
-                              <span className="px-1" title="Aus dem Kontoauszug – Konto ist fest">{accountName(t.accountId)}</span>
+                            {t.source === 'csv' || locked ? (
+                              <span className="px-1" title={locked ? 'Bestätigt' : 'Aus dem Kontoauszug – Konto ist fest'}>{accountName(t.accountId)}</span>
                             ) : (
-                              <select
-                                value={t.accountId || ''}
-                                onChange={(e) => guard([t]) && tx.updateTx(t.id, (x) => { x.accountId = e.target.value || null })}
-                                className="w-full truncate rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent"
-                                title="Konto ändern"
-                              >
-                                <option value="">– ohne Konto –</option>
-                                {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                              </select>
+                              <Changed on={drafts.has(t.id, 'accountId')}>
+                                <select
+                                  value={drafts.val(t.id, 'accountId', t.accountId || '') || ''}
+                                  onChange={(e) => drafts.set(t.id, 'accountId', e.target.value, t.accountId)}
+                                  className="w-full truncate rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent"
+                                  title="Konto ändern"
+                                >
+                                  <option value="">– ohne Konto –</option>
+                                  {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                </select>
+                              </Changed>
                             )}
                           </td>
                           <td className="px-1">
                             {t.status === 'ignored' ? (
                               <span className="px-1 text-ink-3">–</span>
+                            ) : locked && !isSplit(t) ? (
+                              <span className="block truncate px-1">{positionName(data, t.positionId) || '–'}</span>
                             ) : isSplit(t) ? (
                               <button
                                 className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left hover:bg-surface-2"
@@ -534,15 +583,34 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
                                 {Icon.split}<span className="truncate">Aufgeteilt auf {t.splits.length} Positionen</span>
                               </button>
                             ) : (
-                              <PositionSelect data={data} month={monthOf(t.date)} value={t.positionId} onChange={(v) => assign(t, v)} allowIgnore disabled={t.status === 'confirmed'} />
+                              <Changed on={drafts.has(t.id, 'positionId')}>
+                                <PositionSelect data={data} month={monthOf(t.date)} value={posValue} onChange={(v) => drafts.set(t.id, 'positionId', v, t.positionId)} allowIgnore disabled={t.status === 'confirmed'} />
+                              </Changed>
                             )}
                           </td>
-                          <td className={`num whitespace-nowrap px-2 text-right font-medium ${t.amount > 0 ? 'text-good' : ''}`}>{fmtCHF(t.amount)}</td>
+                          <td className={`num whitespace-nowrap px-2 text-right font-medium ${t.amount > 0 ? 'text-good' : ''}`}>
+                            {locked || t.source === 'csv' ? (
+                              <span title={t.source === 'csv' && !locked ? 'Aus dem Kontoauszug – Betrag ist fest' : undefined}>{fmtCHF(t.amount)}</span>
+                            ) : (
+                              <Changed on={drafts.has(t.id, 'amount')}>
+                                <AmountInput
+                                  value={(Math.sign(t.amount) || -1) * drafts.val(t.id, 'amount', Math.abs(t.amount))}
+                                  onChange={(v) => Math.abs(v) > 0 && drafts.set(t.id, 'amount', Math.abs(v), Math.abs(t.amount))}
+                                  className="font-medium"
+                                  title="Betrag ändern – das Vorzeichen bleibt"
+                                />
+                              </Changed>
+                            )}
+                          </td>
                           <td className="px-2">
                             <Badge tone={STATUS[t.status]?.tone}>{t.status === 'confirmed' && Icon.check}{STATUS[t.status]?.label}</Badge>
                           </td>
                           <td className="pr-4">
+                            {dirty ? (
+                              <RowSave onSave={() => saveDrafts([t.id])} onDiscard={() => drafts.discard(t.id)} />
+                            ) : (
                             <div className="flex justify-end opacity-60 transition group-hover:opacity-100">
+                              <IconButton title={t.status === 'confirmed' ? 'Bestätigt – zuerst die Bestätigung aufheben' : 'Bearbeiten'} disabled={t.status === 'confirmed'} className="disabled:opacity-30" onClick={() => setEditId(t.id)}>{Icon.pencil}</IconButton>
                               {t.status === 'confirmed' ? (
                                 <IconButton title="Bestätigung aufheben" onClick={() => unconfirm(t)}>{Icon.lock}</IconButton>
                               ) : t.status !== 'ignored' ? (
@@ -555,6 +623,7 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
                               {linked && <IconButton title="Verknüpfung lösen" onClick={() => unlink(t)}>{Icon.link}</IconButton>}
                               <IconButton title="Löschen" className="hover:text-bad" onClick={() => removeMany([t])}>{Icon.trash}</IconButton>
                             </div>
+                            )}
                           </td>
                         </tr>
                         {splitId === t.id && (
@@ -573,6 +642,19 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
             )}
           </Card>
         </>
+      )}
+
+      {editId && byId[editId] && (
+        <TxEditDialog
+          data={data}
+          tx={tx}
+          t={byId[editId]}
+          partner={byId[editId].linkedId ? byId[byId[editId].linkedId] : null}
+          queueSuggestions={queueSuggestions}
+          onSaved={flash}
+          onOpenRecurring={() => { setEditId(null); if (confirmLeave()) setTab('recurring') }}
+          onClose={() => setEditId(null)}
+        />
       )}
 
       {/* Hinweis unten: offene Regelvorschläge – immer sichtbar */}
