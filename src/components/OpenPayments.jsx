@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Card, Button, IconButton, AmountInput, TextInput, Icon } from './ui.jsx'
+import { Card, Button, IconButton, AmountInput, TextInput, Icon, Changed, DirtyBar, RowSave, dirtyRowCls } from './ui.jsx'
+import { OpenPaymentEditDialog } from './EditDialogs.jsx'
+import { useDrafts } from '../lib/useDrafts.js'
 import SplitEditor from './SplitEditor.jsx'
 import PositionSelect, { positionName } from './PositionSelect.jsx'
 import { fmtCHF, fmtDate } from '../lib/format.js'
@@ -25,6 +27,8 @@ export default function OpenPayments({ data, update, onConvert, showForm, onClos
   const [splitId, setSplitId] = useState(null) // offene Zahlung, deren Aufteilung gerade bearbeitet wird
   // Aufteilung und Betrag passen nicht mehr zusammen (z. B. Betrag nachträglich geändert)
   const splitMismatch = (p) => !!p.splits?.length && Math.abs(p.splits.reduce((s, x) => s + Math.abs(x.amount), 0) - p.amount) >= 0.005
+  const [editId, setEditId] = useState(null)
+  const drafts = useDrafts() // vorgemerkte Änderungen in der Liste (Fälligkeit, Text, Position, Betrag)
   const setD = (k, v) => setDraft((x) => ({ ...x, [k]: v }))
   const canAdd = draft.text.trim() && draft.amount > 0 && draft.dueDate
 
@@ -37,6 +41,22 @@ export default function OpenPayments({ data, update, onConvert, showForm, onClos
     onCloseForm()
   }
   const set = (id, fn) => update((d) => { const p = d.openPayments.find((x) => x.id === id); if (p) fn(p) })
+  /** Vorgemerkte Änderungen übernehmen. */
+  const saveDrafts = (ids) => {
+    const all = drafts.current()
+    update((d) => {
+      for (const id of ids) {
+        const p = all[id]
+        const x = (d.openPayments || []).find((o) => o.id === id)
+        if (!p || !x) continue
+        if (p.dueDate) x.dueDate = p.dueDate
+        if ('text' in p && p.text.trim()) x.text = p.text.trim()
+        if ('amount' in p) x.amount = Math.abs(p.amount)
+        if ('positionId' in p) x.positionId = p.positionId
+      }
+    })
+    for (const id of ids) drafts.take(id)
+  }
   const done = (p) => update((d) => { d.openPayments = d.openPayments.filter((x) => x.id !== p.id) })
 
   const { groups, total } = openPaymentGroups(list, today)
@@ -82,6 +102,8 @@ export default function OpenPayments({ data, update, onConvert, showForm, onClos
       </Card>
       )}
 
+      <DirtyBar count={drafts.count} onSave={() => saveDrafts(drafts.ids)} onDiscard={drafts.discardAll} />
+
       <Card
         padded={false}
         title="Offene Zahlungen"
@@ -95,16 +117,23 @@ export default function OpenPayments({ data, update, onConvert, showForm, onClos
             </div>
             {g.items.map((p) => (
               <div key={p.id} className="border-b border-line last:border-b-0">
-              <div className="group grid grid-cols-[110px_minmax(0,1fr)_auto] items-center gap-3 px-5 py-2 text-[13px] md:grid-cols-[110px_minmax(0,1fr)_200px_130px_auto]">
-                <input
-                  type="date"
-                  value={p.dueDate}
-                  onChange={(e) => e.target.value && set(p.id, (x) => { x.dueDate = e.target.value })}
-                  className={`num rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent ${g.key === 'overdue' ? 'text-bad' : ''}`}
-                  title="Fälligkeit ändern"
-                />
+              <div
+                onKeyDown={drafts.rowKeys(p.id, () => saveDrafts([p.id]))}
+                className={`group grid grid-cols-[110px_minmax(0,1fr)_auto] items-center gap-3 px-5 py-2 text-[13px] md:grid-cols-[110px_minmax(0,1.2fr)_minmax(200px,1fr)_140px_360px] ${drafts.dirty(p.id) ? dirtyRowCls : ''}`}
+              >
+                <Changed on={drafts.has(p.id, 'dueDate')}>
+                  <input
+                    type="date"
+                    value={drafts.val(p.id, 'dueDate', p.dueDate)}
+                    onChange={(e) => e.target.value && drafts.set(p.id, 'dueDate', e.target.value, p.dueDate)}
+                    className={`num w-full rounded-md border border-transparent bg-transparent px-1 py-1 outline-none hover:border-line focus:border-accent ${g.key === 'overdue' ? 'text-bad' : ''}`}
+                    title="Fälligkeit ändern"
+                  />
+                </Changed>
                 <div className="min-w-0">
-                  <TextInput value={p.text} onChange={(v) => set(p.id, (x) => { x.text = v })} className="-ml-2 text-[14px]" />
+                  <Changed on={drafts.has(p.id, 'text')}>
+                    <TextInput value={drafts.val(p.id, 'text', p.text)} onChange={(v) => drafts.set(p.id, 'text', v, p.text)} className="-ml-2 text-[14px]" />
+                  </Changed>
                   <div className="truncate text-[12px] text-ink-3">
                     {[accountName(p.accountId), p.note].filter(Boolean).join(' · ') || ' '}
                   </div>
@@ -119,18 +148,23 @@ export default function OpenPayments({ data, update, onConvert, showForm, onClos
                       {Icon.split}<span className="truncate">Aufgeteilt auf {p.splits.length} Positionen</span>
                     </button>
                   ) : (
-                    <div className="flex items-center gap-1">
-                      <span className="min-w-0 flex-1 truncate text-ink-2" title="Position">{positionName(data, p.positionId) || <span className="text-ink-3">ohne Position</span>}</span>
-                      <IconButton title="Auf mehrere Positionen aufteilen" onClick={() => setSplitId(splitId === p.id ? null : p.id)}>{Icon.split}</IconButton>
-                    </div>
+                    <Changed on={drafts.has(p.id, 'positionId')}>
+                      <PositionSelect data={data} month={drafts.val(p.id, 'dueDate', p.dueDate)?.slice(0, 7)} value={drafts.val(p.id, 'positionId', p.positionId)} onChange={(v) => drafts.set(p.id, 'positionId', v, p.positionId)} placeholder="ohne Position" className="text-ink-2" />
+                    </Changed>
                   )}
                   {splitMismatch(p) && <div className="text-[11px] text-warn">Aufteilung passt nicht zum Betrag</div>}
                 </div>
-                <div className="hidden md:block"><AmountInput value={p.amount} onChange={(v) => set(p.id, (x) => { x.amount = Math.abs(v) })} className="font-medium" /></div>
+                <Changed on={drafts.has(p.id, 'amount')} className="hidden md:block"><AmountInput value={drafts.val(p.id, 'amount', p.amount)} onChange={(v) => drafts.set(p.id, 'amount', Math.abs(v), p.amount)} className="font-medium" /></Changed>
+                {drafts.dirty(p.id) ? (
+                  <RowSave onSave={() => saveDrafts([p.id])} onDiscard={() => drafts.discard(p.id)} />
+                ) : (
                 <div className="flex items-center justify-end gap-1">
+                  <IconButton title="Bearbeiten" onClick={() => setEditId(p.id)}>{Icon.pencil}</IconButton>
+                  <IconButton title="Auf mehrere Positionen aufteilen" className={splitId === p.id ? 'text-accent' : ''} onClick={() => setSplitId(splitId === p.id ? null : p.id)}>{Icon.split}</IconButton>
                   <Button onClick={() => onConvert(p)} title="Öffnet das Buchungsformular, vorausgefüllt">{Icon.receipt} Als Buchung erfassen</Button>
                   <Button variant="ghost" onClick={() => done(p)} title="Ohne Buchung entfernen – z. B. wenn die Zahlung per Kontoauszug (CSV) kommt">{Icon.check} Erledigt</Button>
                 </div>
+                )}
               </div>
               {splitId === p.id && (
                 <div className="border-t border-line bg-surface-2/40 px-5 py-3">
@@ -152,6 +186,9 @@ export default function OpenPayments({ data, update, onConvert, showForm, onClos
             ))}
           </div>
         ))}
+        {editId && list.some((x) => x.id === editId) && (
+          <OpenPaymentEditDialog data={data} p={list.find((x) => x.id === editId)} update={update} onClose={() => setEditId(null)} />
+        )}
         {list.length === 0 && <p className="px-5 pb-5 text-[13px] text-ink-3">Merke dir hier Zahlungen vor, die du nicht vergessen willst – z. B. Rechnungen, die noch bezahlt werden müssen.</p>}
       </Card>
     </div>

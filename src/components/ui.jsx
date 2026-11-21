@@ -146,6 +146,8 @@ export const Icon = {
   eyeOff: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4z" /><path d="M3 13L13 3" /></svg>,
   upload: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M8 10V2.5M5 5.5l3-3 3 3M3 10.5v2h10v-2" /></svg>,
   split: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 8h4l3-4.5h4M6.5 8l3 4.5h4M12 2l1.5 1.5L12 5M12 11l1.5 1.5L12 14" /></svg>,
+  pencil: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.5 3l2.5 2.5L6 12.5H3.5V10L10.5 3z" /></svg>,
+  x: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg>,
   lock: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 015 0v2" /></svg>,
   // Navigation
   receipt: <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M5 2.5h10v15l-2-1.3-1.7 1.3L10 16.2l-1.3 1.3L7 16.2l-2 1.3v-15z" /><path d="M7.5 6.5h5M7.5 9.5h5M7.5 12.5h3" strokeLinecap="round" /></svg>,
@@ -203,6 +205,104 @@ export function DeleteDialogHost() {
           <Button variant="ghost" onClick={() => close(false)}>Abbrechen</Button>
           <Button variant="destructive" disabled={!ok} onClick={() => close(true)}>Endgültig löschen</Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Formulare und Bearbeiten ─────────────────────────────────────────────────
+export const inputCls = 'h-9 w-full rounded-lg border border-line bg-surface px-3 text-[14px] font-normal text-ink outline-none focus:border-accent disabled:text-ink-3'
+
+/** Feld mit Beschriftung. `as="div"`, wenn Knöpfe darin sind (ein <label> würde Klicks weiterleiten). */
+export const Field = ({ label, children, className = '', hint, as: Tag = 'label' }) => (
+  <Tag className={`flex flex-col gap-1 text-[12px] font-medium text-ink-3 ${className}`}>
+    {label}
+    {children}
+    {hint && <span className="text-[11px] font-normal text-ink-3">{hint}</span>}
+  </Tag>
+)
+
+export function Segmented({ value, options, onChange, disabled }) {
+  return (
+    <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
+      {options.map(([v, l]) => (
+        <button
+          key={v}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(v)}
+          className={`rounded-md px-3 py-1 text-[13px] transition disabled:opacity-50 ${value === v ? 'bg-accent-soft font-medium text-accent' : 'text-ink-2 hover:bg-surface-2'}`}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Markiert ein vorgemerktes (noch nicht gespeichertes) Feld mit einem Punkt. */
+export const Changed = ({ on, children, className = '' }) => (
+  <div className={`relative ${className}`}>
+    {children}
+    {on && <span className="pointer-events-none absolute -right-0.5 -top-0.5 size-2 rounded-full bg-warn" title="Geändert – noch nicht gespeichert" />}
+  </div>
+)
+
+/** Hintergrund einer Zeile mit vorgemerkten Änderungen. */
+export const dirtyRowCls = 'bg-warn-soft/60'
+
+/** Speichern/Verwerfen für eine Zeile mit vorgemerkten Änderungen. */
+export const RowSave = ({ onSave, onDiscard }) => (
+  <div className="flex items-center justify-end gap-1.5">
+    <Button variant="primary" className="px-2 py-1" title="Änderungen speichern (Enter)" onClick={onSave}>{Icon.check} Speichern</Button>
+    <Button className="px-2 py-1" title="Änderungen verwerfen (Esc)" onClick={onDiscard}>{Icon.x} Abbrechen</Button>
+  </div>
+)
+
+/** Leiste, sobald mehrere Zeilen vorgemerkte Änderungen haben. */
+export function DirtyBar({ count, onSave, onDiscard }) {
+  if (count < 2) return null
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-2 text-[13px]">
+      <span className="text-warn">{Icon.warn}</span>
+      <span><b>{count} geänderte Zeilen</b> – noch nicht gespeichert</span>
+      <div className="ml-auto flex gap-2">
+        <Button variant="ghost" onClick={() => confirm(`Änderungen in ${count} Zeilen verwerfen?`) && onDiscard()}>Alle verwerfen</Button>
+        <Button variant="primary" onClick={onSave}>{Icon.check} Alle speichern</Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Fenster zum Bearbeiten. Schliessen (Esc, Klick daneben, ✕, Abbrechen) fragt nach, wenn etwas geändert wurde.
+ */
+export function Modal({ title, subtitle, children, footer, onClose, dirty, width = 'max-w-2xl' }) {
+  const tryClose = () => (!dirty || confirm('Änderungen verwerfen?')) && onClose()
+  const closeRef = useRef(tryClose)
+  closeRef.current = tryClose
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      const a = document.activeElement
+      if (a && ['INPUT', 'SELECT', 'TEXTAREA'].includes(a.tagName)) return a.blur()
+      closeRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  return (
+    <div className="fixed inset-0 z-[90] overflow-y-auto bg-black/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && tryClose()}>
+      <div className={`mx-auto my-[6vh] w-full rounded-2xl border border-line bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.3)] ${width}`} role="dialog" aria-modal="true">
+        <header className="flex items-start justify-between gap-4 px-5 pb-3 pt-4">
+          <div className="min-w-0">
+            <h2 className="text-[16px] font-semibold tracking-tight">{title}</h2>
+            {subtitle && <p className="mt-0.5 text-[13px] text-ink-3">{subtitle}</p>}
+          </div>
+          <IconButton title="Schliessen" onClick={tryClose}>{Icon.x}</IconButton>
+        </header>
+        <div className="px-5 pb-4">{children}</div>
+        {footer && <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
       </div>
     </div>
   )

@@ -92,7 +92,19 @@ export function useTxStore() {
       updateTx: (ids, fn) =>
         updateYears((d) => {
           const set = new Set([].concat(ids))
-          for (const y of Object.keys(d)) for (const t of d[y].transactions) if (set.has(t.id)) fn(t)
+          const moves = []
+          for (const y of Object.keys(d)) for (const t of d[y].transactions) {
+            if (!set.has(t.id)) continue
+            fn(t)
+            if (String(yearOf(t.date)) !== y && d[yearOf(t.date)]) moves.push([y, t])
+          }
+          // Datum in ein anderes Jahr geändert → in die richtige Jahresdatei verschieben (Zieljahr muss geladen sein)
+          for (const [y, t] of moves) {
+            d[y].transactions = d[y].transactions.filter((x) => x !== t)
+            // wiederkehrende/CSV-Buchung im alten Jahr nicht neu erzeugen bzw. importieren
+            if (t.source === 'recurring' || t.source === 'csv') d[y].deletedIds = [...new Set([...(d[y].deletedIds || []), t.id])]
+            d[yearOf(t.date)].transactions.push(t)
+          }
         }),
       /** Neue Buchungen hinzufügen (Jahre müssen vorher mit ensureYears geladen sein). */
       addTx: (list) =>

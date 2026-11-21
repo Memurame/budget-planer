@@ -69,3 +69,6 @@ body {
 .num { font-variant-numeric: tabular-nums; }
 input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: pointer; }
 :root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+/* Aufklappliste von <select>: unter Linux ignoriert die Liste teils color-scheme → Farben explizit setzen */
+select option, select optgroup { background-color: var(--surface); color: var(--ink); }
+select optgroup { color: var(--ink-3); }

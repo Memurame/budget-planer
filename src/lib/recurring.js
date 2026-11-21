@@ -38,6 +38,18 @@ export function nextOccurrence(tpl, today = todayStr()) {
 export const occurrenceAmount = (tpl, key) => Math.abs(amountAt(tpl, key))
 
 /**
+ * Aufteilung einer Vorlage (Beträge positiv) auf den Betrag `amount` umrechnen – proportional,
+ * Rundungsrest in der letzten Zeile. Passt die Summe schon, bleiben die Beträge unverändert.
+ */
+export function scaleSplits(splits, amount) {
+  const sum = splits.reduce((s, x) => s + Math.abs(x.amount), 0)
+  if (Math.abs(sum - amount) < 0.005) return splits.map((x) => ({ positionId: x.positionId, amount: Math.abs(x.amount) }))
+  const out = splits.map((x) => ({ positionId: x.positionId, amount: sum ? Math.round((Math.abs(x.amount) / sum) * amount * 100) / 100 : 0 }))
+  out[out.length - 1].amount = Math.round((amount - out.slice(0, -1).reduce((s, x) => s + x.amount, 0)) * 100) / 100
+  return out
+}
+
+/**
  * Buchungen aus einer Vorlage für alle fälligen Termine bis heute.
  * IDs sind eindeutig pro Vorlage und Monat → werden nie doppelt erzeugt.
  */
@@ -55,13 +67,16 @@ export function buildOccurrences(tpl, today = todayStr()) {
       out.push({ ...base, id: a, accountId: tpl.accountId, amount: -amount, status: 'ignored', positionId: null, linkedId: b, kind: 'Umbuchung (wiederkehrend)' })
       out.push({ ...base, id: b, accountId: tpl.toAccountId, amount, status: 'ignored', positionId: null, linkedId: a, kind: 'Umbuchung (wiederkehrend)' })
     } else {
+      const sign = tpl.kind === 'credit' ? 1 : -1
+      const split = tpl.splits?.length >= 2
       out.push({
         ...base,
         id: `rec-${tpl.id}-${key}`,
         accountId: tpl.accountId,
-        amount: tpl.kind === 'credit' ? amount : -amount,
-        positionId: tpl.positionId || null,
-        status: tpl.positionId ? 'manual' : 'open',
+        amount: sign * amount,
+        positionId: split ? null : tpl.positionId || null,
+        ...(split ? { splits: scaleSplits(tpl.splits, amount).map((x) => ({ positionId: x.positionId, amount: sign * x.amount })) } : {}),
+        status: split || tpl.positionId ? 'manual' : 'open',
       })
     }
   }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Card, Button, AmountInput, Icon } from './ui.jsx'
+import { Card, Button, IconButton, AmountInput, Icon, Field, Segmented, inputCls } from './ui.jsx'
 import PositionSelect from './PositionSelect.jsx'
 import SplitEditor from './SplitEditor.jsx'
 import { fmtCHF, fmtDate } from '../lib/format.js'
@@ -12,34 +12,9 @@ const KINDS = [
   ['credit', 'Gutschrift'],
   ['transfer', 'Umbuchung'],
 ]
-const REPEAT = [[0, 'Einmalig'], ...RECURRING_INTERVALS.map(([v, l]) => [v, l[0].toUpperCase() + l.slice(1)])]
+const INTERVALS = RECURRING_INTERVALS.map(([v, l]) => [v, l[0].toUpperCase() + l.slice(1)])
+const REPEAT = [[0, 'Einmalig'], ...INTERVALS]
 const LAST_ACCOUNT = 'lastManualAccount'
-
-function Segmented({ value, options, onChange }) {
-  return (
-    <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
-      {options.map(([v, l]) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(v)}
-          className={`rounded-md px-3 py-1 text-[13px] transition ${value === v ? 'bg-accent-soft font-medium text-accent' : 'text-ink-2 hover:bg-surface-2'}`}
-        >
-          {l}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-const Field = ({ label, children, className = '', hint }) => (
-  <label className={`flex flex-col gap-1 text-[12px] font-medium text-ink-3 ${className}`}>
-    {label}
-    {children}
-    {hint && <span className="text-[11px] font-normal text-ink-3">{hint}</span>}
-  </label>
-)
-const inputCls = 'h-9 w-full rounded-lg border border-line bg-surface px-3 text-[14px] font-normal text-ink outline-none focus:border-accent'
 
 /**
  * Buchung erfassen: Ausgabe, Gutschrift oder Umbuchung zwischen zwei Konten –
@@ -47,8 +22,9 @@ const inputCls = 'h-9 w-full rounded-lg border border-line bg-surface px-3 text-
  */
 /**
  * `initial` füllt das Formular vor (z. B. aus einer offenen Zahlung); dann nur Ausgabe, ohne Wiederholung.
+ * `recurring`: nur wiederkehrende Buchungen (Tab «Wiederkehrend») – ohne «Einmalig», Start mit «Monatlich».
  */
-export default function EntryForm({ data, update, tx, month, onDone, onCancel, initial }) {
+export default function EntryForm({ data, update, tx, month, onDone, onCancel, initial, recurring }) {
   const today = todayStr()
   const accounts = data.accounts
   const remembered = (() => { try { return localStorage.getItem(LAST_ACCOUNT) } catch { return null } })()
@@ -62,7 +38,7 @@ export default function EntryForm({ data, update, tx, month, onDone, onCancel, i
     toAccountId: accounts.find((a) => a.id !== defaultAccount)?.id || '',
     positionId: initial?.positionId || null,
     splits: initial?.splits?.length ? initial.splits : null, // Aufteilung (aus einer offenen Zahlung)
-    repeat: 0,
+    repeat: recurring ? INTERVALS[0][0] : 0,
     endMonth: '',
   })
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }))
@@ -74,7 +50,7 @@ export default function EntryForm({ data, update, tx, month, onDone, onCancel, i
     !(f.amount > 0) && 'Betrag fehlt',
     !transfer && !f.text.trim() && 'Text fehlt',
     needsAccount && !f.accountId && 'Konto fehlt',
-    f.splits && Math.abs(f.splits.reduce((s, x) => s + Math.abs(x.amount), 0) - f.amount) >= 0.005 && 'Aufteilung passt nicht zum Betrag – bitte anpassen',
+    !transfer && f.splits && Math.abs(f.splits.reduce((s, x) => s + Math.abs(x.amount), 0) - f.amount) >= 0.005 && 'Aufteilung passt nicht zum Betrag – bitte anpassen',
     transfer && (!f.toAccountId || f.toAccountId === f.accountId) && 'Zwei verschiedene Konten wählen',
     transfer && accounts.length < 2 && 'Für eine Umbuchung braucht es mindestens zwei Konten',
   ].filter(Boolean)
@@ -92,7 +68,8 @@ export default function EntryForm({ data, update, tx, month, onDone, onCancel, i
         amount: Math.abs(f.amount),
         accountId: f.accountId || null,
         toAccountId: transfer ? f.toAccountId : undefined,
-        positionId: transfer ? null : f.positionId,
+        positionId: transfer || f.splits ? null : f.positionId,
+        ...(!transfer && f.splits ? { splits: f.splits.map((x) => ({ positionId: x.positionId, amount: Math.abs(x.amount) })) } : {}),
         interval: f.repeat,
         day: Number(f.date.slice(8, 10)),
         startMonth: monthOf(f.date),
@@ -123,7 +100,7 @@ export default function EntryForm({ data, update, tx, month, onDone, onCancel, i
         amount: f.kind === 'credit' ? Math.abs(f.amount) : -Math.abs(f.amount),
         status: f.positionId || f.splits ? 'manual' : 'open',
         positionId: f.splits ? null : f.positionId,
-        ...(f.splits ? { splits: f.splits.map((x) => ({ positionId: x.positionId, amount: -Math.abs(x.amount) })) } : {}),
+        ...(f.splits ? { splits: f.splits.map((x) => ({ positionId: x.positionId, amount: f.kind === 'credit' ? Math.abs(x.amount) : -Math.abs(x.amount) })) } : {}),
       })
       onDone(`Buchung «${text}» erfasst.`)
     }
@@ -181,22 +158,33 @@ export default function EntryForm({ data, update, tx, month, onDone, onCancel, i
                 <div className={`${inputCls} flex items-center text-ink-3`}>Noch keine Konten – unter «Konten» anlegen</div>
               )}
             </Field>
-            <Field label="Position" className="md:col-span-6">
+            <Field as="div" label="Position" className="md:col-span-6">
               {f.splits ? (
                 <button type="button" onClick={() => setEditSplit((v) => !v)} className={`${inputCls} flex items-center gap-1.5 text-left hover:bg-surface-2`} title="Aufteilung bearbeiten">
                   {Icon.split}<span className="truncate">Aufgeteilt auf {f.splits.length} Positionen</span>
                 </button>
               ) : (
-                <div className={`${inputCls} flex items-center px-1`}>
-                  <PositionSelect data={data} month={f.date ? f.date.slice(0, 7) : undefined} value={f.positionId} onChange={(v) => set('positionId', v)} />
+                <div className="flex items-center gap-1">
+                  <div className={`${inputCls} flex items-center px-1`}>
+                    <PositionSelect data={data} month={f.date ? f.date.slice(0, 7) : undefined} value={f.positionId} onChange={(v) => set('positionId', v)} />
+                  </div>
+                  <IconButton
+                    type="button"
+                    title={f.amount > 0 ? 'Auf mehrere Positionen aufteilen' : 'Zuerst den Betrag eingeben'}
+                    disabled={!(f.amount > 0)}
+                    className={`shrink-0 disabled:opacity-40 ${editSplit ? 'text-accent' : ''}`}
+                    onClick={(e) => { e.preventDefault(); setEditSplit((v) => !v) }}
+                  >
+                    {Icon.split}
+                  </IconButton>
                 </div>
               )}
             </Field>
-            {f.splits && editSplit && (
+            {editSplit && (
               <div className="rounded-lg border border-line bg-surface-2/40 px-4 py-3 md:col-span-12">
                 <SplitEditor
                   data={data}
-                  t={{ text: f.text, amount: -Math.abs(f.amount), date: f.date, positionId: null, splits: f.splits }}
+                  t={{ text: f.text || 'Buchung', amount: f.kind === 'credit' ? Math.abs(f.amount) : -Math.abs(f.amount), date: f.date, positionId: f.positionId, splits: f.splits }}
                   onCancel={() => setEditSplit(false)}
                   onSave={(splits) => { set('splits', splits); setEditSplit(false) }}
                 />
@@ -208,7 +196,7 @@ export default function EntryForm({ data, update, tx, month, onDone, onCancel, i
         <div className="flex flex-wrap items-end gap-4 md:col-span-12">
           {!initial && (
             <Field label="Wiederholen">
-              <Segmented value={f.repeat} options={REPEAT} onChange={(v) => set('repeat', v)} />
+              <Segmented value={f.repeat} options={recurring ? INTERVALS : REPEAT}onChange={(v) => set('repeat', v)} />
             </Field>
           )}
           {f.repeat > 0 && (
