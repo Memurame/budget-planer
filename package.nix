@@ -10,7 +10,7 @@
 
 buildNpmPackage {
   pname = "budget-planer";
-  version = "1.5.0";
+  version = "1.6.0";
 
   # Nur die Quelldateien – node_modules und dist bleiben draussen
   src = lib.fileset.toSource {
@@ -26,7 +26,7 @@ buildNpmPackage {
     ];
   };
 
-  npmDepsHash = "sha256-GrthyvLd2MMDPg3MBAuHAoE5IqOiXl5Dpb2sXvS7qR0=";
+  npmDepsHash = "sha256-hbl0BqAFVRlgkafwQermI0nmSbHzgDEPu2vHoY2JqvY=";
 
   nativeBuildInputs = [
     makeWrapper
