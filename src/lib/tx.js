@@ -1,6 +1,7 @@
 // Buchungen: CSV-Import, Regeln, Ist-Werte, Salden.
 import { addMonths, isPeriodic, uid } from './calc.js'
 import { loanInId, loanOutId } from './loans.js'
+import { scaleSplits } from './recurring.js'
 
 export const STATUS = {
   open: { label: 'Offen', tone: 'warn' },
@@ -95,6 +96,7 @@ const COLS = {
   balance: ['Kontostand', 'Balance'],
 }
 const DONE = ['ABGESCHLOSSEN', 'COMPLETED']
+const PENDING = ['AUSSTEHEND', 'PENDING']
 
 const num = (v) => {
   const n = parseFloat(String(v ?? '').replace(/['’\s]/g, '').replace(',', '.'))
@@ -110,7 +112,12 @@ function hash(str) {
 
 /**
  * Revolut-CSV in Buchungen umwandeln.
- * Liefert { rows, skipped, products, balances, error }.
+ * Liefert { rows, skipped, products, balances, periods, error }.
+ *
+ * Ausstehende Zeilen kommen mit `pending: true`. Ihre ID hängt nur von Beginn, Text und Produkt ab
+ * (Abschlussdatum und Kontostand fehlen noch, der Betrag kann sich ändern). Abgeschlossene Zeilen
+ * tragen dieselbe ID als `pendingId` – so wird eine ausstehende Buchung später ersetzt statt verdoppelt.
+ * Stornierte, abgelehnte usw. Zeilen werden übersprungen (`skipped`). `periods`: Zeitraum pro Produkt.
  */
 export function parseRevolut(text) {
   const table = parseCsv(text)
@@ -124,20 +131,34 @@ export function parseRevolut(text) {
   const rows = []
   let skipped = 0
   const lastBalance = {} // pro Produkt: letzter Kontostand nach Abschlussdatum
+  const periods = {} // pro Produkt: erster und letzter Tag in der Datei
 
   for (const r of table.slice(1)) {
-    const state = get(r, 'state')
-    if (state && !DONE.includes(state.toUpperCase())) { skipped++; continue }
+    const state = get(r, 'state').toUpperCase()
     const started = get(r, 'started')
-    const completed = get(r, 'completed') || started
     const product = get(r, 'product') || 'Konto'
+    const day = started.slice(0, 10)
+    if (day) {
+      const p = (periods[product] ||= { from: day, to: day })
+      if (day < p.from) p.from = day
+      if (day > p.to) p.to = day
+    }
+    const pending = PENDING.includes(state)
+    if (state && !pending && !DONE.includes(state)) { skipped++; continue }
+    const pendingId = `csv-p-${hash([started, get(r, 'text'), product].join('|'))}`
     const amount = Math.round((num(get(r, 'amount')) - num(get(r, 'fee'))) * 100) / 100
+    if (pending) {
+      rows.push({ id: pendingId, pending: true, product, date: day, bookedDate: null, bookedAt: null, text: get(r, 'text'), kind: get(r, 'type'), amount, currency: get(r, 'currency') || 'CHF' })
+      continue
+    }
+    const completed = get(r, 'completed') || started
     const balanceRaw = get(r, 'balance')
     const key = [started, completed, get(r, 'text'), get(r, 'amount'), get(r, 'fee'), balanceRaw, product].join('|')
     rows.push({
       id: `csv-${hash(key)}`,
+      pendingId,
       product,
-      date: started.slice(0, 10),
+      date: day,
       bookedDate: completed.slice(0, 10),
       bookedAt: completed,
       text: get(r, 'text'),
@@ -151,7 +172,30 @@ export function parseRevolut(text) {
     }
   }
   const products = [...new Set(rows.map((r) => r.product))]
-  return { rows, skipped, products, balances: lastBalance }
+  return { rows, skipped, products, balances: lastBalance, periods }
+}
+
+/**
+ * Werte einer CSV-Zeile in eine bestehende ausstehende Buchung übernehmen. Text, Datum, Konto und
+ * Zuordnung bleiben. Ändert sich der Betrag, wird eine Aufteilung angepasst und eine Bestätigung
+ * aufgehoben. Ist die Zeile abgeschlossen, bekommt die Buchung deren ID und gilt nicht mehr als ausstehend.
+ * Liefert true, wenn sich der Betrag geändert hat.
+ */
+export function applyCsvRow(t, r) {
+  const changed = Math.abs(t.amount - r.amount) >= 0.005
+  if (changed) {
+    const sign = Math.sign(r.amount) || -1
+    if (t.splits?.length) t.splits = scaleSplits(t.splits, Math.abs(r.amount)).map((s) => ({ positionId: s.positionId, amount: sign * s.amount }))
+    if (t.status === 'confirmed') t.status = 'manual'
+    t.amount = r.amount
+  }
+  if (!r.pending) {
+    t.id = r.id
+    t.bookedDate = r.bookedDate
+    t.bookedAt = r.bookedAt
+    delete t.pending
+  }
+  return changed
 }
 
 // ── Regeln ──────────────────────────────────────────────────────
@@ -233,13 +277,14 @@ export function monthProgress(transactions, key) {
  * (vorheriger Saldo + Buchungen dazwischen) und die Differenz.
  * Der erste eingetragene Saldo ist der Startpunkt.
  */
+// Ausstehende Buchungen zählen nicht: Revolut verrechnet sie erst beim Abschluss im Kontostand.
 // Zeitpunkte: Buchungen nach Abschluss, Salden zum Stichtag (manuell eingetragen = Tagesende)
 const txAt = (t) => t.bookedAt || `${t.bookedDate || t.date} 12:00:00`
 export const balanceAt = (b) => b.at || `${b.date} 23:59:59`
 
 export function balanceCheck(account, balances, transactions) {
   const list = balances.filter((b) => b.accountId === account.id).sort((a, b) => balanceAt(a).localeCompare(balanceAt(b)))
-  const txs = transactions.filter((t) => t.accountId === account.id)
+  const txs = transactions.filter((t) => t.accountId === account.id && !t.pending)
   const sumBetween = (from, to) => txs.filter((t) => txAt(t) > from && txAt(t) <= to).reduce((s, t) => s + t.amount, 0)
   return list.map((b, i) => {
     if (i === 0) return { ...b, expected: null, diff: 0 }
@@ -253,7 +298,7 @@ export function balanceCheck(account, balances, transactions) {
 export function currentBalance(account, balances, transactions) {
   const list = balances.filter((b) => b.accountId === account.id).sort((a, b) => balanceAt(a).localeCompare(balanceAt(b)))
   const last = list[list.length - 1]
-  const txs = transactions.filter((t) => t.accountId === account.id)
+  const txs = transactions.filter((t) => t.accountId === account.id && !t.pending)
   if (!last) return { amount: txs.reduce((s, t) => s + t.amount, 0), since: null }
   return {
     amount: Math.round((last.amount + txs.filter((t) => txAt(t) > balanceAt(last)).reduce((s, t) => s + t.amount, 0)) * 100) / 100,

@@ -12,7 +12,7 @@ import { scaleSplits, todayStr } from '../lib/recurring.js'
 import { fmtCHF, fmtDate, fmtPct } from '../lib/format.js'
 import { monthLabel, uid } from '../lib/calc.js'
 import { importRemove, openCsv } from '../lib/storage.js'
-import { STATUS, allocations, isAssigned, isSplit, applyRules, findRule, monthOf, parseRevolut, ruleMatches, suggestOffsets, suggestPattern, yearOf } from '../lib/tx.js'
+import { STATUS, allocations, isAssigned, isSplit, applyCsvRow, applyRules, findRule, monthOf, parseRevolut, ruleMatches, suggestOffsets, suggestPattern, yearOf } from '../lib/tx.js'
 
 const FILTERS = [
   ['all', 'Alle'],
@@ -250,13 +250,28 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
   const preview = useMemo(() => {
     if (!imp) return null
     // Duplikate gegen alle Buchungen prüfen, auch die vor dem Startmonat ausgeblendeten
-    const existing = new Set(tx.allTransactions.map((t) => t.id))
+    const existing = new Map(tx.allTransactions.map((t) => [t.id, t]))
     // Zeilen vor dem Start des Budget-Planers werden übersprungen
     const isBeforeStart = (r) => !!tx.startMonth && monthOf(r.date) < tx.startMonth
     const beforeStart = imp.rows.filter(isBeforeStart).length
     const rows = imp.rows.filter((r) => !isBeforeStart(r))
-    const fresh = rows.filter((r) => !existing.has(r.id) && !tx.deletedIds.has(r.id))
-    const deleted = rows.filter((r) => !existing.has(r.id) && tx.deletedIds.has(r.id)).length
+    const fresh = []
+    const finalize = [] // abgeschlossene Zeilen, die eine ausstehende Buchung ersetzen
+    const refresh = [] // weiterhin ausstehend, aber mit geändertem Betrag
+    let deleted = 0, duplicates = 0
+    for (const r of rows) {
+      const own = existing.get(r.id)
+      if (own) {
+        if (r.pending && own.pending && Math.abs(own.amount - r.amount) >= 0.005) refresh.push(r)
+        else duplicates++
+      } else if (!r.pending && existing.get(r.pendingId)?.pending) finalize.push(r)
+      else if (tx.deletedIds.has(r.id) || (!r.pending && tx.deletedIds.has(r.pendingId))) deleted++
+      else fresh.push(r)
+    }
+    // Ausstehende Buchungen, die im Zeitraum der Datei nicht mehr vorkommen (oder storniert sind) → entfernen
+    const seen = new Set(imp.rows.map((r) => (r.pending ? r.id : r.pendingId)))
+    const covers = (t) => imp.products.some((p) => imp.mapping[p] === t.accountId && imp.periods[p] && t.date >= imp.periods[p].from && t.date <= imp.periods[p].to)
+    const stale = tx.allTransactions.filter((t) => t.pending && t.source === 'csv' && !seen.has(t.id) && covers(t))
     let ignored = 0, auto = 0
     for (const r of fresh) {
       const rule = findRule(data.rules, r.text)
@@ -265,7 +280,9 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
     }
     const months = [...new Set(rows.map((r) => monthOf(r.date)))].sort()
     const closedHit = months.filter((m) => tx.isClosed(m))
-    return { fresh, deleted, beforeStart, duplicates: rows.length - fresh.length - deleted, ignored, auto, open: fresh.length - ignored - auto, months, closedHit }
+    const pendingNew = fresh.filter((r) => r.pending && !tx.isClosed(monthOf(r.date))).length
+    const changes = fresh.length + finalize.length + refresh.length + stale.length
+    return { fresh, finalize, refresh, stale, pendingNew, changes, deleted, beforeStart, duplicates, ignored, auto, open: fresh.length - ignored - auto, months, closedHit }
   }, [imp, tx.allTransactions, tx.startMonth, data.rules])
 
   const doImport = () => {
@@ -286,15 +303,39 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
       .filter((r) => !tx.isClosed(monthOf(r.date)))
       .map((r) => {
         const t = { id: r.id, accountId: ids[r.product], date: r.date, bookedDate: r.bookedDate, bookedAt: r.bookedAt, text: r.text, kind: r.kind, amount: r.amount, source: 'csv', status: 'open', positionId: null, ruleId: null }
+        if (r.pending) t.pending = true
         applyRules(t, data.rules)
         return t
       })
     tx.addTx(rows)
+    // Ausstehende Buchungen nachführen: abschliessen (neue ID), Betrag aktualisieren oder entfernen.
+    // Zuordnung, Aufteilung, Text und Datum bleiben erhalten.
+    const fin = new Map([...preview.finalize.map((r) => [r.pendingId, r]), ...preview.refresh.map((r) => [r.id, r])])
+    const staleIds = new Set(preview.stale.map((t) => t.id))
+    if (fin.size || staleIds.size) {
+      tx.updateYears((d) => {
+        for (const y of Object.keys(d)) {
+          d[y].transactions = d[y].transactions.filter((t) => !staleIds.has(t.id))
+          for (const t of d[y].transactions) {
+            if (t.linkedId && staleIds.has(t.linkedId)) delete t.linkedId
+            if (t.linkedId && fin.has(t.linkedId)) t.linkedId = fin.get(t.linkedId).id
+            if (fin.has(t.id)) applyCsvRow(t, fin.get(t.id))
+          }
+        }
+      })
+    }
     for (const [p, b] of Object.entries(imp.balances)) {
       if (ids[p]) tx.addBalance({ id: uid(), accountId: ids[p], date: b.date, at: b.at, amount: b.amount, source: 'csv' })
     }
     closeImport()
-    flash(`${rows.length} neue Buchungen importiert${preview.duplicates ? `, ${preview.duplicates} bereits vorhanden` : ''}.`)
+    const pendingNew = rows.filter((t) => t.pending).length
+    flash([
+      `${rows.length} neue Buchungen importiert${pendingNew ? ` (davon ${pendingNew} ausstehend)` : ''}`,
+      preview.finalize.length && `${preview.finalize.length} ausstehende abgeschlossen`,
+      preview.refresh.length && `${preview.refresh.length} ausstehende mit neuem Betrag`,
+      preview.stale.length && `${preview.stale.length} ausstehende entfernt (storniert)`,
+      preview.duplicates && `${preview.duplicates} bereits vorhanden`,
+    ].filter(Boolean).join(', ') + '.')
   }
 
   // ── Auswahl ─────────────────────────────────────────────────
@@ -367,11 +408,11 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
       {tab === 'list' && imp && preview && (
         <Card
           title={`Import: ${imp.file}`}
-          subtitle={`${imp.rows.length} Zeilen · ${preview.months.map((m) => monthLabel(m)).join(', ')}${imp.skipped ? ` · ${imp.skipped} nicht abgeschlossene übersprungen` : ''}${preview.beforeStart ? ` · ${preview.beforeStart} vor dem Start (${monthLabel(tx.startMonth)}) übersprungen` : ''}`}
+          subtitle={`${imp.rows.length} Zeilen · ${preview.months.map((m) => monthLabel(m)).join(', ')}${imp.skipped ? ` · ${imp.skipped} storniert/abgelehnt (übersprungen)` : ''}${preview.beforeStart ? ` · ${preview.beforeStart} vor dem Start (${monthLabel(tx.startMonth)}) übersprungen` : ''}`}
           actions={
             <>
               <Button variant="ghost" onClick={closeImport}>Abbrechen</Button>
-              <Button variant="primary" onClick={doImport} disabled={!preview.fresh.length}>{preview.fresh.length} Buchungen importieren</Button>
+              <Button variant="primary" onClick={doImport} disabled={!preview.changes}>{preview.fresh.length || !preview.changes ? `${preview.fresh.length} Buchungen importieren` : `${preview.changes} Änderungen übernehmen`}</Button>
             </>
           }
         >
@@ -400,6 +441,10 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
               <Mini label="Automatisch zugeordnet" value={preview.auto} />
               <Mini label="Ignoriert (Umbuchungen)" value={preview.ignored} />
               <Mini label="Offen (zuordnen)" value={preview.open} />
+              {preview.pendingNew > 0 && <Mini label="Davon neu ausstehend" value={preview.pendingNew} />}
+              {preview.finalize.length > 0 && <Mini label="Ausstehende jetzt abgeschlossen" value={preview.finalize.length} />}
+              {preview.refresh.length > 0 && <Mini label="Ausstehende mit neuem Betrag" value={preview.refresh.length} />}
+              {preview.stale.length > 0 && <Mini label="Ausstehende storniert (werden entfernt)" value={preview.stale.length} />}
               {preview.closedHit.length > 0 && <Mini label="Abgeschlossene Monate (übersprungen)" value={preview.closedHit.map(monthLabel).join(', ')} />}
             </div>
           </div>
@@ -603,7 +648,10 @@ export default function Transactions({ data, update, month, tx, folderImport }) 
                             )}
                           </td>
                           <td className="px-2">
-                            <Badge tone={STATUS[t.status]?.tone}>{t.status === 'confirmed' && Icon.check}{STATUS[t.status]?.label}</Badge>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Badge tone={STATUS[t.status]?.tone}>{t.status === 'confirmed' && Icon.check}{STATUS[t.status]?.label}</Badge>
+                              {t.pending && <Badge tone="warn" title="Noch nicht abgeschlossen – zählt im Budget, aber noch nicht im Kontostand. Wird beim nächsten Import ersetzt.">ausstehend</Badge>}
+                            </div>
                           </td>
                           <td className="pr-4">
                             {dirty ? (
